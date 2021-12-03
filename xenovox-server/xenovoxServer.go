@@ -28,6 +28,7 @@ var upgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool {
 var sockets map[int]*websocket.Conn = make(map[int]*websocket.Conn)
 
 func sendMessage(w http.ResponseWriter, r *http.Request) {
+	log.Println("Client connected")
 	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Print("upgrade:", err)
@@ -38,6 +39,11 @@ func sendMessage(w http.ResponseWriter, r *http.Request) {
 	tokenCookie, _ := r.Cookie("xeno_token")
 	token := tokenCookie.Value
 	id := dbhandler.GetUserId(&token)
+
+	if clientSocket, ok := sockets[id]; ok {
+		clientSocket.Close()
+	}
+
 	sockets[id] = c
 
 	for {
@@ -58,33 +64,34 @@ func sendMessage(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		// Get socket of the receiver of the message
-		if receiverSocket, ok := sockets[messageObj.ReceiverId]; ok {
-			err = receiverSocket.WriteMessage(mt, message)
-			if err != nil {
-				log.Println("err:", err)
-				break
-			}
-		} else {
-			log.Println("Key not found")
-			continue
-		}
-
-		// Send message to receiver
-		err = c.WriteMessage(mt, message)
-		if err != nil {
-			log.Println("err:", err)
-			break
-		}
-
 		// Insert message to database
 		messageObj.SenderId = id
 		ret := dbhandler.InsertPrivateMessage(&messageObj)
 		if ret == "FAILED" {
 			log.Println(ret)
+			break
+		} else if ret == "BLOCKED" {
+			log.Println(ret)
+			continue
 		}
 		log.Printf("recv: %s", message)
 
+		// Get socket of the receiver of the message
+		if receiverSocket, ok := sockets[messageObj.ReceiverId]; ok {
+			// Send message to receiver
+			err = receiverSocket.WriteMessage(mt, message)
+			if err != nil {
+				log.Println("err:", err)
+			}
+		} else {
+			log.Println("Receiver Offline")
+		}
+
+		// Send message to sender
+		err = c.WriteMessage(mt, message)
+		if err != nil {
+			log.Println("err:", err)
+		}
 	}
 }
 
@@ -106,32 +113,33 @@ func main() {
 	authRouter.HandleFunc("/login", login).Methods("POST")
 	authRouter.HandleFunc("/register", register).Methods("POST")
 
+	mainRouter.HandleFunc("/checkauth", checkAuth).Methods("GET")
 	mainRouter.HandleFunc("/logout", logout).Methods("POST")
-	mainRouter.HandleFunc("/users", getUsers).Methods("GET")
-	mainRouter.HandleFunc("/send", sendMessage)
+	mainRouter.HandleFunc("/friends", getFriends).Methods("GET")
+	mainRouter.HandleFunc("/info", getUserInfo).Methods("GET")
+	mainRouter.HandleFunc("/sendPM", sendMessage)
+	mainRouter.HandleFunc("/sendRelation", sendRelation)
 
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }
 
-func addCorsHeaders(w http.ResponseWriter) http.ResponseWriter {
-	w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT")
-
-	return w
+func addCorsHeaders(w *http.ResponseWriter) {
+	(*w).Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
+	(*w).Header().Set("Access-Control-Allow-Credentials", "true")
+	(*w).Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+	(*w).Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT")
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w = addCorsHeaders(w)
+		addCorsHeaders(&w)
 		next.ServeHTTP(w, r)
 	})
 }
 
 func authorizationMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w = addCorsHeaders(w)
+		addCorsHeaders(&w)
 		w.Header().Set("Content-Type", "application/json")
 
 		tokenCookie, err := r.Cookie("xeno_token")
@@ -160,6 +168,11 @@ func authorizationMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func checkAuth(w http.ResponseWriter, r *http.Request) {
+	jsonRes, _ := json.Marshal(apiResponse{Message: "AUTHORIZED"})
+	w.Write(jsonRes)
 }
 
 func login(w http.ResponseWriter, r *http.Request) {
@@ -245,157 +258,97 @@ func register(w http.ResponseWriter, r *http.Request) {
 	w.Write(jsonRes)
 }
 
-func getUsers(w http.ResponseWriter, r *http.Request) {
-	rows := dbhandler.GetUsers()
-	//token, err := c.Cookie("xeno_token")
+func sendRelation(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var newRelation structs.Relation
+	err := json.NewDecoder(r.Body).Decode(&newRelation)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		w.Write(jsonRes)
+		return
+	}
+
+	tokenCookie, err := r.Cookie("xeno_token")
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		w.Write(jsonRes)
+		return
+	}
+
+	token := tokenCookie.Value
+	id := dbhandler.GetUserId(&token)
+	newRelation.User1Id = id
+
+	ret := dbhandler.UpsertRelation(&newRelation)
+	if ret == "FAILED" {
+		w.WriteHeader(http.StatusBadRequest)
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		w.Write(jsonRes)
+		return
+	}
+
+	jsonRes, _ := json.Marshal(apiResponse{Message: ret})
+	w.Write(jsonRes)
+}
+
+func getUserInfo(w http.ResponseWriter, r *http.Request) {
+	tokenCookie, err := r.Cookie("xeno_token")
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		w.Write(jsonRes)
+		return
+	}
+
+	token := tokenCookie.Value
+	id := dbhandler.GetUserId(&token)
+	row := dbhandler.GetUserInfo(id)
+
+	var userInfo structs.ClientUser
+	row.Scan(&userInfo.Id, &userInfo.Name, &userInfo.Username, &userInfo.Email, &userInfo.Picture)
+	jsonRes, _ := json.Marshal(userInfo)
+	w.Write(jsonRes)
+}
+
+func getFriends(w http.ResponseWriter, r *http.Request) {
+	tokenCookie, err := r.Cookie("xeno_token")
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		w.Write(jsonRes)
+		return
+	}
+
+	token := tokenCookie.Value
+	id := dbhandler.GetUserId(&token)
+
+	rows, status := dbhandler.GetFriends(id)
+	if !status {
+		w.WriteHeader(http.StatusBadRequest)
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		w.Write(jsonRes)
+		return
+	}
 
 	jsonUsers := structs.Jsonify(rows)
-	users := []structs.User{}
+	friends := []structs.ClientFriend{}
 
 	for _, jsonUser := range jsonUsers {
 
 		if jsonUser == "," {
 			continue
 		}
-		user := &structs.User{}
+		user := &structs.ClientFriend{}
 		easyjson.Unmarshal([]byte(jsonUser), user)
-		users = append(users, *user)
+		friends = append(friends, *user)
 	}
 
 	//c.IndentedJSON(http.StatusOK, users)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	jsonRes, _ := json.Marshal(users)
+	jsonRes, _ := json.Marshal(friends)
 	w.Write(jsonRes)
 }
-
-/*package main
-
-import (
-	"net/http"
-
-	dbhandler "github.com/Disidious/Xenovox/DbHandler"
-	structs "github.com/Disidious/Xenovox/Structs"
-	"github.com/gin-gonic/gin"
-	"github.com/mailru/easyjson"
-)
-
-type apiResponse struct {
-	Message string `json:"message"`
-}
-
-func main() {
-	dbhandler.ConnectDb()
-	defer dbhandler.CloseDb()
-
-	router := gin.Default()
-	router.Use(corsMiddleware())
-	router.POST("/login", login)
-	router.POST("/logout", logout)
-	router.POST("/register", register)
-
-	router.Use(authorize())
-	router.GET("/users", getUsers)
-
-	router.Run("localhost:7777")
-}
-
-func corsMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT")
-
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
-
-		c.Next()
-	}
-}
-
-func authorize() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// middleware
-
-		token, _ := c.Cookie("xeno_token")
-		if token == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, apiResponse{Message: "UNAUTHORIZED"})
-			return
-		}
-
-		ret := dbhandler.Authorize(token)
-		if ret == "UNAUTHORIZED" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, apiResponse{Message: ret})
-			return
-		}
-
-		c.Next()
-	}
-}
-
-func login(c *gin.Context) {
-	var user structs.Users
-	if err := c.BindJSON(&user); err != nil {
-		c.IndentedJSON(http.StatusBadRequest, apiResponse{Message: "UEXPECTED_FAILURE"})
-		return
-	}
-
-	ret, token := dbhandler.Login(&user)
-	if ret == "AUTH_FAILED" {
-		c.IndentedJSON(http.StatusUnauthorized, apiResponse{Message: ret})
-	} else if ret == "SUCCESS" {
-		c.SetCookie("xeno_token", token, 2592000, "/", "localhost", false, true)
-		c.IndentedJSON(http.StatusOK, apiResponse{Message: "LOGGED_IN"})
-	}
-}
-
-func logout(c *gin.Context) {
-	_, err := c.Cookie("xeno_token")
-	if err != nil {
-		c.IndentedJSON(http.StatusForbidden, apiResponse{Message: "LOGOUT_FAILED"})
-		return
-	}
-
-	c.SetCookie("xeno_token", "", -1, "/", "localhost", false, true)
-	c.IndentedJSON(http.StatusOK, apiResponse{Message: "LOGGED_OUT"})
-}
-
-func register(c *gin.Context) {
-	var newUser structs.Users
-	if err := c.BindJSON(&newUser); err != nil {
-		c.IndentedJSON(http.StatusBadRequest, apiResponse{Message: "UEXPECTED_FAILURE"})
-		return
-	}
-
-	ret := dbhandler.Register(&newUser)
-	if ret == "EMAIL_EXISTS" || ret == "USERNAME_EXISTS" {
-		c.IndentedJSON(http.StatusForbidden, apiResponse{Message: ret})
-	} else if ret == "SUCCESS" {
-		c.IndentedJSON(http.StatusCreated, apiResponse{Message: ret})
-	} else {
-		c.IndentedJSON(http.StatusBadRequest, apiResponse{Message: ret})
-	}
-}
-
-func getUsers(c *gin.Context) {
-	rows := dbhandler.GetUsers()
-	//token, err := c.Cookie("xeno_token")
-
-	jsonUsers := structs.Jsonify(rows)
-	users := []structs.Users{}
-
-	for _, jsonUser := range jsonUsers {
-
-		if jsonUser == "," {
-			continue
-		}
-		user := &structs.Users{}
-		easyjson.Unmarshal([]byte(jsonUser), user)
-		users = append(users, *user)
-	}
-
-	c.IndentedJSON(http.StatusOK, users)
-} */

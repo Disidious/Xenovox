@@ -4,19 +4,24 @@ import {
   Routes,
   Route
 } from 'react-router-dom';
-import './App.css'
+import './App.css';
+import '../node_modules/bootstrap/dist/css/bootstrap.min.css';
 
-import LoginPage from './components/pages/login';
-import TempForm from './components/tempComponent';
-import SocketPage from './components/pages/socket'
+import Login from './pages/login';
+import Home from './pages/home'
+import Xenosocket from './components/xenosocket'
+
+let socket = new Xenosocket()
+let url = 'http://localhost:7777'
 
 function App() {
   return (
     <Router>
       <div className="App">
         <Routes>
-          <Route exact path='/' element={<TempForm/>}/>
-          <Route exact path='/send' element={<SocketPage/>}/>
+          <Route exact path='/' element={<Login url={url}/>}/>
+          <Route exact path='/home/:id' element={<Home soc={socket} url={url}/>}/>
+          <Route exact path='/home' element={<Home soc={socket} url={url}/>}/>
         </Routes>
       </div>
     </Router>

@@ -38,3 +38,228 @@
 }
 
 /*===================================================================*/
+
+body {
+  background-color: #0A1929!important;
+}
+
+.login-image {
+  background-repeat: no-repeat;
+  background-size: cover;
+  height: 100%;
+  background-image: linear-gradient(to right, rgba(10, 25, 41, 1), rgba(255,0,0,0)), 
+  url('./images/loginImage.jpg');
+}
+
+h3 {
+  color: rgb(243, 246, 249);
+}
+
+.form-label {
+  color: rgb(243, 246, 249);
+}
+
+.form-input {
+  background-color: rgb(0, 30, 60)!important;
+  border: 1px solid rgb(30, 73, 118)!important;
+
+  color: rgb(243, 246, 249)!important;
+}
+
+
+.width-fix {
+  --bs-gutter-x: 0!important;
+}
+
+.home-container {
+  margin: 10px;
+}
+
+.creds-container {
+  margin: 50px;
+}
+
+.btn-main {
+  background-color: rgb(0, 30, 60)!important;
+  color: rgb(243, 246, 249)!important;
+  border: 1px solid rgb(19, 47, 76)!important;
+}
+
+.btn-main:hover {
+  background-color: rgb(19, 47, 76)!important;
+  border-color: rgb(51, 153, 255)!important;
+}
+
+.center {
+  height: 100vh;
+  padding: 25px 0; 
+}
+
+h1 {
+  font-size: 30px!important;
+}
+p {
+  color: rgb(243, 246, 249);
+}
+
+a {
+  text-decoration: none!important;
+  color: rgb(51, 153, 255)!important;
+}
+
+.error-message {
+  color: rgb(255, 59, 59)!important;
+  font-weight: bold;
+}
+
+.success-message {
+  color: rgb(83, 233, 83)!important;
+  font-weight: bold;
+}
+
+.info-message {
+  color: rgb(51, 153, 255)!important;
+  font-weight: bold;
+}
+
+.neonText {
+  color: #fff;
+  text-shadow:
+      0 0 2px rgb(243, 246, 249),
+      0 0 10px rgb(51, 153, 255)
+  
+}
+
+.chat-container {
+  float: left;
+}
+
+.friends-container {
+  float: right;
+}
+
+.friends-container, .chat-container {
+  border: 1px solid rgb(19, 47, 76);
+  border-radius: .25rem;
+  height: 91vh;
+  width: 99%;
+  margin-top: 1vh;
+}
+
+.friends-container p {
+  color: rgb(243, 246, 249);
+  margin: 10px;
+  font-weight: bold;
+}
+
+.friends-btn {
+  background-color: rgba(0, 30, 60, 0)!important;
+  color: rgb(243, 246, 249)!important;
+  border-radius: 0!important;
+  width: 100%;
+  text-align: left!important;
+  border: none!important;
+}
+
+.btn-main {
+  background-color: rgb(0, 30, 60)!important;
+  color: rgb(243, 246, 249)!important;
+  border: 1px solid rgb(19, 47, 76)!important;
+  
+}
+
+.btn-main:hover {
+  background-color: rgb(19, 47, 76)!important;
+  border-color: rgb(51, 153, 255)!important;
+}
+
+.btn-main:active {
+  background-color: rgb(51, 153, 255)!important;
+  background-size: 100%!important;
+  transition: background 0s!important;
+}
+
+button:focus {
+  box-shadow: none !important;
+}
+
+.friends-btn:focus {
+  border: none!important;
+  outline: none!important;
+}
+
+.friends-btn:hover {
+  background-color: rgb(19, 47, 76)!important;
+}
+
+.friends-container h1 {
+  color: rgb(51, 153, 255);
+  margin: 10px;
+}
+
+.logo {
+  width: 15%;
+}
+
+/*Spinner*/
+/*===================================================================*/
+.loading {
+  position: relative;
+  width: 4rem;
+  height: 4rem;
+  transform-style: preserve-3d;
+  perspective: 800px;
+}
+.loading .arc {
+  position: absolute;
+  content: "";
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border-bottom: 3px solid rgb(51, 153, 255);
+}
+.loading .arc:nth-child(1) {
+  animation: rotate1 1.15s linear infinite;
+}
+.loading .arc:nth-child(2) {
+  animation: rotate2 1.15s linear infinite;
+}
+.loading .arc:nth-child(3) {
+  animation: rotate3 1.15s linear infinite;
+}
+.loading .arc:nth-child(1) {
+  animation-delay: -0.8s;
+}
+.loading .arc:nth-child(2) {
+  animation-delay: -0.4s;
+}
+.loading .arc:nth-child(3) {
+  animation-delay: 0s;
+}
+
+@keyframes rotate1 {
+  from {
+    transform: rotateX(35deg) rotateY(-45deg) rotateZ(0);
+  }
+  to {
+    transform: rotateX(35deg) rotateY(-45deg) rotateZ(1turn);
+  }
+}
+@keyframes rotate2 {
+  from {
+    transform: rotateX(50deg) rotateY(10deg) rotateZ(0);
+  }
+  to {
+    transform: rotateX(50deg) rotateY(10deg) rotateZ(1turn);
+  }
+}
+@keyframes rotate3 {
+  from {
+    transform: rotateX(35deg) rotateY(55deg) rotateZ(0);
+  }
+  to {
+    transform: rotateX(35deg) rotateY(55deg) rotateZ(1turn);
+  }
+}

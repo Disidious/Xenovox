@@ -71,11 +71,11 @@ func ConnectDb() {
 
 	rdb = redis.NewClient(&redis.Options{
 		Addr:     rHost,
-		Password: rPass, // no password set
-		DB:       rDB,   // use default DB
+		Password: rPass,
+		DB:       rDB,
 	})
 
-	fmt.Println("Successfully connected!")
+	log.Println("Successfully connected!")
 }
 
 func CloseDb() {
@@ -174,8 +174,6 @@ func Register(newUser *structs.User) string {
 }
 
 func Authorize(token *string) string {
-	// /fmt.Println(token)
-
 	id, err := rdb.Get(*token).Result()
 	if err != nil || id == "" {
 		return "UNAUTHORIZED"
@@ -191,21 +189,125 @@ func GetUserId(token *string) int {
 	return id
 }
 
-func GetUsers() (rows *sql.Rows) {
-	rows, err := db.Query(`SELECT * FROM users`)
+func GetUserInfo(id int) (row *sql.Row) {
+	row = db.QueryRow(`SELECT id, name, username, email, picture FROM users WHERE id = $1`, id)
+	return
+}
+
+func GetFriends(id int) (rows *sql.Rows, status bool) {
+	rows, err := db.Query(`SELECT users.id, users.username, users.picture 
+	FROM users 
+	INNER JOIN relations 
+	ON ((relations.user1id=$1 AND users.id = relations.user2id) or (relations.user2id=$1 AND users.id = relations.user1id)) 
+	AND relations.relation = 1;`, id)
+
 	if err != nil {
-		log.Fatal("Failed to execute query: ", err)
+		log.Fatal(err)
+		status = false
+	} else {
+		status = true
 	}
 
 	return
 }
 
 func InsertPrivateMessage(message *structs.Message) string {
-	q := `INSERT INTO private_messages (senderId, receiverId, message) VALUES($1, $2, $3)`
-	_, err := db.Exec(q, message.SenderId, message.ReceiverId, message.Message)
+	// Check if the relation is Blocked before sending the message
+	checkQ := `SELECT relation FROM relations WHERE (user1id = $1 AND user2id = $2) OR (user1id = $2 AND user2id = $1)`
+	row := db.QueryRow(checkQ, message.SenderId, message.ReceiverId)
+	var relation int
+	row.Scan(&relation)
+	if relation == 2 {
+		return "BLOCKED"
+	}
+
+	addQ := `INSERT INTO private_messages (senderId, receiverId, message) VALUES($1, $2, $3)`
+	log.Println(message.SenderId, message.ReceiverId, message.Message)
+	_, err := db.Exec(addQ, message.SenderId, message.ReceiverId, message.Message)
 	if err != nil {
-		fmt.Println(err)
+		log.Println(err)
 		return "FAILED"
 	}
 	return "SUCCESS"
+}
+
+func UpsertRelation(relation *structs.Relation) string {
+	/*
+		-1 = Remove Relation
+		0  = Friend Request
+		1  = Friends
+		2  = Blocked
+	*/
+
+	// Delete relation
+	// Only blocker can delete a Blocked relation
+	if relation.Relation == -1 {
+		q := `DELETE FROM relations 
+		WHERE ( ((user1id = $1 AND user2id = $2) OR (user1id = $2 AND user2id = $1)) AND relation != 2 )
+		OR ((user1id = $1 AND user2id = $2) AND relation = 2)`
+		_, err := db.Exec(q, relation.User1Id, relation.User2Id)
+		if err != nil {
+			log.Println(err)
+			return "FAILED"
+		}
+		return "SUCCESS"
+	}
+
+	// Only send a Friend Request relation if there is no relation that already exists between the two users
+	if relation.Relation == 0 {
+		checkQ := `SELECT id FROM relations WHERE (user1id = $1 AND user2id = $2) OR (user1id = $2 AND user2id = $1)`
+		row := db.QueryRow(checkQ, relation.User1Id, relation.User2Id)
+		var temp interface{}
+		err := row.Scan(&temp)
+		if err != sql.ErrNoRows {
+			return "FAILED"
+		}
+
+		q := `INSERT INTO relations (user1id, user2id, relation) VALUES($1, $2, $3)`
+		_, err = db.Exec(q, relation.User1Id, relation.User2Id, relation.Relation)
+		if err != nil {
+			log.Println(err)
+			return "FAILED"
+		}
+		return "SUCCESS"
+	}
+
+	// Only the receiver can accept the Friend Request relation
+	if relation.Relation == 1 {
+		q := `UPDATE relations SET relation = $1 WHERE user2id = $2 AND user1id = $3 AND relation = 0`
+		_, err := db.Exec(q, relation.Relation, relation.User1Id, relation.User2Id)
+		if err != nil {
+			return "FAILED"
+		}
+		return "SUCCESS"
+	}
+
+	// Check if there is a relation that already exists and change it to Blocked, if not insert a new relation
+	// Set the sender and the receiver along with the Blocked relation
+	if relation.Relation == 2 {
+		checkQ := `SELECT id FROM relations WHERE (user1id = $1 AND user2id = $2) OR (user1id = $2 AND user2id = $1)`
+		row := db.QueryRow(checkQ, relation.User1Id, relation.User2Id)
+		var id string
+		err := row.Scan(&id)
+
+		if err == sql.ErrNoRows {
+			q := `INSERT INTO relations (user1id, user2id, relation) VALUES($1, $2, $3)`
+			_, err = db.Exec(q, relation.User1Id, relation.User2Id, relation.Relation)
+			if err != nil {
+				log.Println(err)
+				return "FAILED"
+			}
+			return "SUCCESS"
+		}
+
+		q := `UPDATE relations SET user1id = $1, user2id = $2, relation = $3 WHERE id = $4`
+		_, err = db.Exec(q, relation.User1Id, relation.User2Id, relation.Relation, id)
+		if err != nil {
+			log.Println(err)
+			return "FAILED"
+		}
+		return "SUCCESS"
+	}
+
+	return "FAILED"
 }

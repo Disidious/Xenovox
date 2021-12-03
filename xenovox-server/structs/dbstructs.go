@@ -13,6 +13,13 @@ type User struct {
 type Message struct {
 	Id         int    `json:"id"`
 	Message    string `json:"message"`
-	SenderId   int    `json:"sendId"`
+	SenderId   int    `json:"senderId`
 	ReceiverId int    `json:"receiverId"`
+}
+
+type Relation struct {
+	Id       int `json:"id"`
+	User1Id  int `json:"user1id"`
+	User2Id  int `json:"user2id"`
+	Relation int `json:"relation"`
 }
