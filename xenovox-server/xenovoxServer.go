@@ -11,7 +11,6 @@ import (
 	structs "github.com/Disidious/Xenovox/Structs"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/mailru/easyjson"
 )
 
 type apiResponse struct {
@@ -27,7 +26,7 @@ var upgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool {
 
 var sockets map[int]*websocket.Conn = make(map[int]*websocket.Conn)
 
-func sendMessage(w http.ResponseWriter, r *http.Request) {
+func socketHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("Client connected")
 	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -51,46 +50,26 @@ func sendMessage(w http.ResponseWriter, r *http.Request) {
 
 		// If connection closed remove key from sockets map
 		if err != nil {
-			log.Println("err:", err)
+			log.Println("err disconnect:", err)
 			delete(sockets, id)
 			break
 		}
 
-		// Convert message to Message object
-		var messageObj structs.Message
-		err = json.Unmarshal(message, &messageObj)
+		var request structs.ClientSocketMessage
+		err = json.Unmarshal(message, &request)
 		if err != nil {
 			log.Println("Failed to unmarshal: ", err)
 			break
 		}
-
-		// Insert message to database
-		messageObj.SenderId = id
-		ret := dbhandler.InsertPrivateMessage(&messageObj)
-		if ret == "FAILED" {
-			log.Println(ret)
-			break
-		} else if ret == "BLOCKED" {
-			log.Println(ret)
-			continue
-		}
-		log.Printf("recv: %s", message)
-
-		// Get socket of the receiver of the message
-		if receiverSocket, ok := sockets[messageObj.ReceiverId]; ok {
-			// Send message to receiver
-			err = receiverSocket.WriteMessage(mt, message)
-			if err != nil {
-				log.Println("err:", err)
+		switch request.Type {
+		case "DM":
+			if !sendDM(&request.Body, &message, &mt, &id, c) {
+				continue
 			}
-		} else {
-			log.Println("Receiver Offline")
-		}
-
-		// Send message to sender
-		err = c.WriteMessage(mt, message)
-		if err != nil {
-			log.Println("err:", err)
+		case "CHAT_HISTORY_REQ":
+			if !getChat(&request.Body, &message, &mt, &id, c) {
+				continue
+			}
 		}
 	}
 }
@@ -117,8 +96,9 @@ func main() {
 	mainRouter.HandleFunc("/logout", logout).Methods("POST")
 	mainRouter.HandleFunc("/friends", getFriends).Methods("GET")
 	mainRouter.HandleFunc("/info", getUserInfo).Methods("GET")
-	mainRouter.HandleFunc("/sendPM", sendMessage)
-	mainRouter.HandleFunc("/sendRelation", sendRelation)
+	mainRouter.HandleFunc("/socket", socketHandler)
+	mainRouter.HandleFunc("/sendRelation", sendRelation).Methods("POST")
+	mainRouter.HandleFunc("/friendRequests", getFriendRequests).Methods("GET")
 
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }
@@ -282,6 +262,13 @@ func sendRelation(w http.ResponseWriter, r *http.Request) {
 	id := dbhandler.GetUserId(&token)
 	newRelation.User1Id = id
 
+	if id == newRelation.User2Id {
+		w.WriteHeader(http.StatusBadRequest)
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
+		w.Write(jsonRes)
+		return
+	}
+
 	ret := dbhandler.UpsertRelation(&newRelation)
 	if ret == "FAILED" {
 		w.WriteHeader(http.StatusBadRequest)
@@ -305,7 +292,7 @@ func getUserInfo(w http.ResponseWriter, r *http.Request) {
 
 	token := tokenCookie.Value
 	id := dbhandler.GetUserId(&token)
-	row := dbhandler.GetUserInfo(id)
+	row := dbhandler.GetUserInfo(&id)
 
 	var userInfo structs.ClientUser
 	row.Scan(&userInfo.Id, &userInfo.Name, &userInfo.Username, &userInfo.Email, &userInfo.Picture)
@@ -325,7 +312,7 @@ func getFriends(w http.ResponseWriter, r *http.Request) {
 	token := tokenCookie.Value
 	id := dbhandler.GetUserId(&token)
 
-	rows, status := dbhandler.GetFriends(id)
+	rows, status := dbhandler.GetFriends(&id)
 	if !status {
 		w.WriteHeader(http.StatusBadRequest)
 		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
@@ -337,12 +324,12 @@ func getFriends(w http.ResponseWriter, r *http.Request) {
 	friends := []structs.ClientFriend{}
 
 	for _, jsonUser := range jsonUsers {
-
 		if jsonUser == "," {
 			continue
 		}
+		//log.Println(jsonUser)
 		user := &structs.ClientFriend{}
-		easyjson.Unmarshal([]byte(jsonUser), user)
+		json.Unmarshal([]byte(jsonUser), user)
 		friends = append(friends, *user)
 	}
 
@@ -350,5 +337,42 @@ func getFriends(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	jsonRes, _ := json.Marshal(friends)
+	w.Write(jsonRes)
+}
+
+func getFriendRequests(w http.ResponseWriter, r *http.Request) {
+	tokenCookie, err := r.Cookie("xeno_token")
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		w.Write(jsonRes)
+		return
+	}
+
+	token := tokenCookie.Value
+	id := dbhandler.GetUserId(&token)
+
+	rows, status := dbhandler.GetFriendRequests(&id)
+	if !status {
+		w.WriteHeader(http.StatusBadRequest)
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		w.Write(jsonRes)
+		return
+	}
+
+	jsonFRs := structs.Jsonify(rows)
+	friendRequests := []structs.ClientFriendRequest{}
+	for _, jsonFR := range jsonFRs {
+		if jsonFR == "," {
+			continue
+		}
+		friendRequest := &structs.ClientFriendRequest{}
+		json.Unmarshal([]byte(jsonFR), friendRequest)
+		friendRequests = append(friendRequests, *friendRequest)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	jsonRes, _ := json.Marshal(friendRequests)
 	w.Write(jsonRes)
 }

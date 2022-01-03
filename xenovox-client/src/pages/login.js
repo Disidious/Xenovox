@@ -1,5 +1,5 @@
 /* eslint-disable jsx-a11y/anchor-is-valid */
-import { Col, Row, Container, Form, Button } from 'react-bootstrap';
+import { Col, Row, Form, Button } from 'react-bootstrap';
 import { Navigate } from 'react-router-dom'
 import React, { useState, useEffect } from 'react';
 
@@ -17,6 +17,10 @@ function checkAuth(url, setState) {
             setState('REDIRECT')
             return
         }
+        setState('CHECKED')
+    })
+    .catch((error) => {
+        console.log(error)
         setState('CHECKED')
     })
 }
@@ -45,6 +49,10 @@ function login(url, setState) {
             return
         }
         setState('UNAUTHORIZED')
+    })
+    .catch((error) => {
+        console.log(error)
+        setState('UNEXPECTED_FAILURE')
     })
 
     setState('LOADING')
@@ -130,9 +138,7 @@ function Login(props) {
     }
     else if(state === 'STANDBY') {
         return (
-            <center style={{marginTop: "20%"}}>
-                <Spinner/>
-            </center>
+            <Spinner mode={"SCREEN"}/>
         );
     }
     else {
@@ -238,6 +244,11 @@ function Login(props) {
                                     state === "FAILED" ?
                                     <p className="error-message">
                                         Registration failed
+                                    </p>
+                                    :
+                                    state === "UNEXPECTED_FAILURE" ?
+                                    <p className="error-message">
+                                        Server is down<br/>Please try again later
                                     </p>
                                     :
                                     <div/>

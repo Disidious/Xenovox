@@ -1,35 +1,40 @@
-class Xenosocket {
+class Xenosocket{
     constructor() {
         this.socket = null
+
+        this.chat = null
+        this.setChat = null
+
+        this.setState = null
+
+        this.userInfo = null
     }
 
     connect() {
-        // Without this if condition the socket connects TWICE for some reason.
-        if(this.socket != null) {
-            return;
+        this.socket = new WebSocket("ws://localhost:7777/socket");
+        
+        this.socket.onopen = () => {
+            this.setState("DONE")
+        };
+        
+        this.socket.onmessage = (event) => {
+            var data = JSON.parse(event.data)
+            switch(data.type) {
+                case "DM":
+                    if(this.chat.friendId === data.body.senderId || this.chat.friendId === data.body.receiverId) {
+                        var newChat = Object.assign({}, this.chat)
+                        newChat.history.push(data.body)
+                        this.setChat(newChat)
+                    }
+                    break
+                case "CHAT_HISTORY_RES":
+                    //console.log(this.chat)  
+                    this.setChat(data.body)
+                    break
+                default:
+            }
+            console.log(data)
         }
-
-        this.socket = new WebSocket("ws://localhost:7777/sendPM");
-
-        this.socket.onopen = function(e) {
-            //alert("[open] Connection established");
-            //alert("Sending to server");
-            //socket.send("My name is John");
-        };
-        
-        this.socket.onmessage = function(event) {
-            alert(`[message] Data received from server: ${event.data}`);
-        };
-        
-        // this.socket.onclose = function(event) {
-        //     if (event.wasClean) {
-        //         alert(`[close] Connection closed cleanly, code=${event.code} reason=${event.reason}`);
-        //     } else {
-        //         // e.g. server process killed or network down
-        //         // event.code is usually 1006 in this case
-        //         alert('[close] Connection died');
-        //     }
-        // };
 
         this.socket.onerror = function(error) {
             alert(`[error] ${error.message}`);
@@ -40,18 +45,26 @@ class Xenosocket {
         this.socket.close()
     }
 
-    sendPM(message, receiverId) {
+    sendDM(message, receiverId) {
         var body = JSON.stringify({
-            receiverId: parseInt(receiverId),
-            message: message,
+            type: "DM",
+            body: {
+                receiverId: parseInt(receiverId),
+                message: message,
+            }
         })
-        console.log(body)
-        if(this.socket == null) {
-            this.connect();
-            setTimeout(() => {this.socket.send(body)}, 1000);
-        } else {
-            this.socket.send(body);
-        }
+        //console.log(body)
+        this.socket.send(body);
+    }
+
+    getChat(friendId) {
+        var body = JSON.stringify({
+            type: "CHAT_HISTORY_REQ",
+            body: {
+                id: friendId
+            }
+        })
+        this.socket.send(body);
     }
 }
 

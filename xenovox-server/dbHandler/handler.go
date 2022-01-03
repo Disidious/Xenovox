@@ -189,17 +189,31 @@ func GetUserId(token *string) int {
 	return id
 }
 
-func GetUserInfo(id int) (row *sql.Row) {
+func GetUserInfo(id *int) (row *sql.Row) {
 	row = db.QueryRow(`SELECT id, name, username, email, picture FROM users WHERE id = $1`, id)
 	return
 }
 
-func GetFriends(id int) (rows *sql.Rows, status bool) {
+func GetFriends(id *int) (rows *sql.Rows, status bool) {
 	rows, err := db.Query(`SELECT users.id, users.username, users.picture 
 	FROM users 
 	INNER JOIN relations 
 	ON ((relations.user1id=$1 AND users.id = relations.user2id) or (relations.user2id=$1 AND users.id = relations.user1id)) 
 	AND relations.relation = 1;`, id)
+
+	if err != nil {
+		log.Fatal(err)
+		status = false
+	} else {
+		status = true
+	}
+
+	return
+}
+
+func GetChat(id *int, friendId *int) (rows *sql.Rows, status bool) {
+	rows, err := db.Query(`SELECT message, senderId, receiverId FROM private_messages 
+	WHERE (senderId = $1 AND receiverId = $2) OR (senderId = $2 AND receiverId = $1)`, id, friendId)
 
 	if err != nil {
 		log.Fatal(err)
@@ -229,6 +243,20 @@ func InsertPrivateMessage(message *structs.Message) string {
 		return "FAILED"
 	}
 	return "SUCCESS"
+}
+
+func GetFriendRequests(id *int) (rows *sql.Rows, status bool) {
+	rows, err := db.Query(`SELECT r.id as relationId, u.username, u.id as userId FROM relations r INNER JOIN users u ON r.user1id = u.id 
+							WHERE r.user2id = $1 AND r.relation = 0`, id)
+
+	if err != nil {
+		log.Fatal(err)
+		status = false
+	} else {
+		status = true
+	}
+
+	return
 }
 
 func UpsertRelation(relation *structs.Relation) string {

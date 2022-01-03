@@ -20,8 +20,8 @@ function App() {
       <div className="App">
         <Routes>
           <Route exact path='/' element={<Login url={url}/>}/>
-          <Route exact path='/home/:id' element={<Home soc={socket} url={url}/>}/>
-          <Route exact path='/home' element={<Home soc={socket} url={url}/>}/>
+          <Route exact path='/home/:id' element={<Home socket={socket} url={url}/>}/>
+          <Route exact path='/home' element={<Home socket={socket} url={url}/>}/>
         </Routes>
       </div>
     </Router>
