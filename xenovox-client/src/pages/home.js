@@ -12,7 +12,7 @@ function sendDM(socket, friendId) {
     //socket.sendDM("message", 11)
     var messageBox = document.getElementById("message");
 
-    if(messageBox.value === "") {
+    if(messageBox.value.replaceAll(' ','') === "") {
         return;
     }
 
@@ -70,26 +70,48 @@ function getChat(socket, friendId) {
     socket.getChat(friendId)
 }
 
+function markAsRead(url, friendId, notifications, setNotifications) {
+    if(!notifications.dms.includes(friendId))
+        return
+
+    fetch(url + '/read', {
+        credentials: 'include',
+        method: 'POST',
+        body: JSON.stringify({
+            id: friendId
+        })
+    }).then(() => {
+        var notiIdx = notifications.dms.indexOf(friendId)
+        if(notiIdx !== -1) {
+            var newNotifications = Object.assign({}, notifications)
+            newNotifications.dms.splice(notiIdx, 1)
+            setNotifications(newNotifications)
+        }
+    })
+}
+
 function Home(props) {
     const[state, setState] = useState("LOADING")
     const[socketState, setSocState] = useState("CONNECTING")
 
     const[userInfo, setInfo] = useState({id: -1, username: "", name: "", email: "", picture: ""})
     const[friends, setFriends] = useState([])
-    const[chat, setChat] = useState({friendId: -1, history:[]})
+    const[chat, setChat] = useState({friendid: -1, history:[]})
+    const[notifications, setNotifications] = useState({dms: [], groups: [], friendreq: false})
 
     const[loggedOut, setLoggedOut] = useState(false)
 
-    const [friendModalShow, setFriendModalShow] = React.useState(false);
+    const[friendModalShow, setFriendModalShow] = React.useState(false);
 
     const handleEnter = (e) => {
         if(e.key !== 'Enter') {
             return
         }
-        sendDM(props.socket, chat.friendId)
+        sendDM(props.socket, chat.friendid)
     }
     
     props.socket.chat = chat
+    props.socket.notifications = notifications
     
     const calledOnce = React.useRef(false);
     useEffect(()=>{
@@ -98,6 +120,8 @@ function Home(props) {
         }
         props.socket.setChat = setChat
         props.socket.setState = setSocState
+        props.socket.setNotifications = setNotifications
+        props.socket.getFriends = () => {getFriends(props.url, setFriends)}
         props.socket.connect()
 
         getUserInfo(props.url, props.socket, setState, setInfo)
@@ -126,14 +150,22 @@ function Home(props) {
     return (
         <div className="home-container">
             <Row className="width-fix">
+                <Col style={{float: "left"}} >
+                    <div className='user-info'>
+                        <div>
+                            <h1 style={{float: "left"}}>
+                                {userInfo.username}
+                            </h1>
+                            <h1 style={{color: "rgb(51, 153, 255)"}}>
+                                #{userInfo.id} 
+                            </h1>
+                        </div>
+                    </div>
+                </Col>
                 <Col>
                     <Button type="button" className="btn-main" style={{float: "right"}} 
                     onClick={() => logout(setLoggedOut, props.url, props.socket)}>
                         Logout
-                    </Button>
-                    <Button type="button" className="btn-main" style={{float: "right"}} 
-                    onClick={() => getChat(props.socket)}>
-                        Temp
                     </Button>
                 </Col>
             </Row>
@@ -146,8 +178,8 @@ function Home(props) {
                                     <p key={key} className="chat-msg">
                                         <b>
                                             {
-                                                el.receiverId === userInfo.id ?
-                                                friends.find(friend => friend.id === chat.friendId).username
+                                                el.receiverid === userInfo.id ?
+                                                friends.find(friend => friend.id === chat.friendid).username
                                                 :
                                                 userInfo.username
                                             }
@@ -161,11 +193,11 @@ function Home(props) {
                         </div>
                         <div className="message-container">
                             <input type="text" id="message" className="message-box textbox-main" onKeyPress={(e) => handleEnter(e)} 
-                            disabled={chat.friendId === -1} autocomplete="off"/>
+                            disabled={chat.friendid === -1} autoComplete="off"/>
 
                             <Button type="button" className="btn-main btn-send " 
-                            onClick={() => sendDM(props.socket, chat.friendId)}
-                            disabled={chat.friendId === -1}>
+                            onClick={() => sendDM(props.socket, chat.friendid)}
+                            disabled={chat.friendid === -1}>
                                 <FontAwesomeIcon icon={faLocationArrow} />
                             </Button>
                         </div>
@@ -175,7 +207,12 @@ function Home(props) {
                     <div className="friends-container">
                         <div style={{margin: "1em"}}>
                             <h1>Friends</h1>
-                            <Button className="btn-small"
+                            <Button className={
+                                notifications.friendreq ?
+                                "glowing-btn btn-small"
+                                :
+                                "btn-small"
+                            }
                             onClick={() => setFriendModalShow(true)}>
                                 <FontAwesomeIcon icon={faUserPlus} size={'xs'} />
                             </Button>
@@ -195,7 +232,19 @@ function Home(props) {
                                 </center>
                                 :
                                 friends.map((el, key) => (
-                                    <Button className="friends-btn" key={key} onClick={()=>{getChat(props.socket, el.id)}}>
+                                    <Button className={
+                                        notifications.dms.includes(el.id) ? 
+                                        "friends-btn glowing-btn" 
+                                        : 
+                                        "friends-btn"
+                                    } key={key} onClick={()=>{
+                                        if(chat.friendid !== el.id) {
+                                            getChat(props.socket, el.id)
+                                            if(notifications.dms.includes(el.id)) {
+                                                markAsRead(props.url, el.id, notifications, setNotifications)
+                                            }
+                                        }
+                                    }}>
                                         {el.username}
                                     </Button>
                                 ))
@@ -209,7 +258,12 @@ function Home(props) {
             show={friendModalShow} 
             onHide={() => setFriendModalShow(false)} 
             url={props.url}
-            getFriends={()=>{getFriends(props.url, setFriends)}}/>
+            getFriends={()=>{getFriends(props.url, setFriends)}}
+            removeNoti={()=>{
+                var newNotifications = Object.assign({}, notifications)
+                newNotifications.friendreq = false
+                setNotifications(newNotifications)
+            }}/>
         </div>
     );
 }

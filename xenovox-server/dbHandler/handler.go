@@ -16,6 +16,8 @@ import (
 var db *sql.DB
 var rdb *redis.Client
 
+//var rcache *redis.Client
+
 const (
 	host     = "localhost"
 	port     = 5432
@@ -30,12 +32,92 @@ const (
 	rDB   = 0
 )
 
+// const (
+// 	rcHost = "localhost:6380"
+// 	rcPass = "123"
+// 	rcDB = 0
+// )
+
 func generateToken() string {
 	b := make([]byte, 50)
 	if _, err := rand.Read(b); err != nil {
 		return ""
 	}
 	return hex.EncodeToString(b)
+}
+
+func InsertPrivateMessage(message *structs.Message) string {
+	// Check if the relation is Blocked before sending the message
+	checkQ := `SELECT relation FROM relations WHERE (user1id = $1 AND user2id = $2) OR (user1id = $2 AND user2id = $1)`
+	row := db.QueryRow(checkQ, message.SenderId, message.ReceiverId)
+	var relation int
+	row.Scan(&relation)
+	if relation == 2 {
+		return "BLOCKED"
+	}
+
+	addQ := `INSERT INTO private_messages (senderId, receiverId, message) VALUES($1, $2, $3)`
+	_, err := db.Exec(addQ, message.SenderId, message.ReceiverId, message.Message)
+	if err != nil || (!message.Read && !appendUnreadMsg(&message.SenderId, &message.ReceiverId, false)) {
+		log.Println(err)
+		return "FAILED"
+	}
+
+	return "SUCCESS"
+}
+
+func UpdateDMsToRead(id *int, friendId *int) string {
+	if !removeUnreadMsg(friendId, id, false) {
+		return "FAILED"
+	} else {
+		return "SUCCESS"
+	}
+}
+func GetUnreadMsgs(id *int) *[]redis.Z {
+	key := "N-" + strconv.Itoa(*id)
+	res, err := rdb.ZRangeWithScores(key, 0, -1).Result()
+	if err != nil {
+		log.Fatal(err)
+		return nil
+	} else {
+		return &res
+	}
+}
+
+func appendUnreadMsg(id *int, receiverId *int, group bool) bool {
+	var member string
+	if group {
+		member = "GM-"
+	} else {
+		member = "DM-"
+	}
+	member += strconv.Itoa(*id)
+	key := "N-" + strconv.Itoa(*receiverId)
+
+	_, err := rdb.ZIncrBy(key, 1, member).Result()
+	if err != nil {
+		log.Fatal(err)
+		return false
+	}
+	return true
+}
+
+func removeUnreadMsg(id *int, receiverId *int, group bool) bool {
+	var member string
+	if group {
+		member = "GM-"
+	} else {
+		member = "DM-"
+	}
+	member += strconv.Itoa(*id)
+	key := "N-" + strconv.Itoa(*receiverId)
+
+	_, err := rdb.ZRem(key, member).Result()
+	if err != nil {
+		log.Fatal(err)
+		return false
+	}
+	return true
 }
 
 func setTokenRedis(token *string, id *string) bool {
@@ -213,7 +295,7 @@ func GetFriends(id *int) (rows *sql.Rows, status bool) {
 
 func GetChat(id *int, friendId *int) (rows *sql.Rows, status bool) {
 	rows, err := db.Query(`SELECT message, senderId, receiverId FROM private_messages 
-	WHERE (senderId = $1 AND receiverId = $2) OR (senderId = $2 AND receiverId = $1)`, id, friendId)
+	WHERE (senderId = $1 AND receiverId = $2) OR (senderId = $2 AND receiverId = $1) ORDER BY id`, id, friendId)
 
 	if err != nil {
 		log.Fatal(err)
@@ -225,28 +307,8 @@ func GetChat(id *int, friendId *int) (rows *sql.Rows, status bool) {
 	return
 }
 
-func InsertPrivateMessage(message *structs.Message) string {
-	// Check if the relation is Blocked before sending the message
-	checkQ := `SELECT relation FROM relations WHERE (user1id = $1 AND user2id = $2) OR (user1id = $2 AND user2id = $1)`
-	row := db.QueryRow(checkQ, message.SenderId, message.ReceiverId)
-	var relation int
-	row.Scan(&relation)
-	if relation == 2 {
-		return "BLOCKED"
-	}
-
-	addQ := `INSERT INTO private_messages (senderId, receiverId, message) VALUES($1, $2, $3)`
-	log.Println(message.SenderId, message.ReceiverId, message.Message)
-	_, err := db.Exec(addQ, message.SenderId, message.ReceiverId, message.Message)
-	if err != nil {
-		log.Println(err)
-		return "FAILED"
-	}
-	return "SUCCESS"
-}
-
 func GetFriendRequests(id *int) (rows *sql.Rows, status bool) {
-	rows, err := db.Query(`SELECT r.id as relationId, u.username, u.id as userId FROM relations r INNER JOIN users u ON r.user1id = u.id 
+	rows, err := db.Query(`SELECT r.id as relationid, u.username, u.id as userid FROM relations r INNER JOIN users u ON r.user1id = u.id 
 							WHERE r.user2id = $1 AND r.relation = 0`, id)
 
 	if err != nil {
@@ -338,4 +400,37 @@ func UpsertRelation(relation *structs.Relation) string {
 	}
 
 	return "FAILED"
+}
+
+func GetUnreadDMs(id *int) (rows *sql.Rows, status bool) {
+	rows, err := db.Query(`SELECT DISTINCT senderid FROM private_messages WHERE receiverid = $1 AND read = false`, id)
+	if err != nil {
+		log.Fatal(err)
+		status = false
+	} else {
+		status = true
+	}
+
+	return
+}
+
+func FriendReqExists(id *int) (result bool, status bool) {
+	row, err := db.Query(`SELECT COUNT(*) as count FROM relations WHERE relation = 0 AND user2id = $1 LIMIT 1`, id)
+	if err != nil {
+		log.Fatal(err)
+		status = false
+	} else {
+		status = true
+		var count int
+		row.Next()
+		row.Scan(&count)
+
+		if count == 0 {
+			result = false
+		} else {
+			result = true
+		}
+	}
+
+	return
 }

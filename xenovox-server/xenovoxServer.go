@@ -25,15 +25,21 @@ var upgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool {
 }}
 
 var sockets map[int]*websocket.Conn = make(map[int]*websocket.Conn)
+var currFriendIds map[int]int = make(map[int]int)
 
-func socketHandler(w http.ResponseWriter, r *http.Request) {
+func resetSocket(id *int) {
+	sockets[*id].Close()
+	delete(sockets, *id)
+	delete(currFriendIds, *id)
+}
+
+func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("Client connected")
 	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Print("upgrade:", err)
 		return
 	}
-	defer c.Close()
 
 	tokenCookie, _ := r.Cookie("xeno_token")
 	token := tokenCookie.Value
@@ -44,6 +50,11 @@ func socketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sockets[id] = c
+	defer resetSocket(&id)
+
+	sendAllNotifications(&id, c)
+
+	currFriendIds[id] = -1
 
 	for {
 		mt, message, err := c.ReadMessage()
@@ -51,7 +62,6 @@ func socketHandler(w http.ResponseWriter, r *http.Request) {
 		// If connection closed remove key from sockets map
 		if err != nil {
 			log.Println("err disconnect:", err)
-			delete(sockets, id)
 			break
 		}
 
@@ -61,15 +71,55 @@ func socketHandler(w http.ResponseWriter, r *http.Request) {
 			log.Println("Failed to unmarshal: ", err)
 			break
 		}
+
 		switch request.Type {
 		case "DM":
-			if !sendDM(&request.Body, &message, &mt, &id, c) {
+			bodyMap, ok := (request.Body).(map[string]interface{})
+			if !ok {
+				log.Println("Failed : couldn't get id from json")
 				continue
 			}
+
+			// Convert message to Message object
+			var messageObj structs.Message
+			ok = structs.StructifyMap(&bodyMap, &messageObj)
+
+			if !ok {
+				log.Println("Failed : couldn't convert map to struct")
+				continue
+			}
+
+			messageObj.SenderId = id
+			if currFriendId, ok := currFriendIds[messageObj.ReceiverId]; ok && currFriendId == id {
+				messageObj.Read = true
+			} else {
+				messageObj.Read = false
+			}
+
+			if !sendDM(&messageObj, &mt, &id, c) {
+				continue
+			}
+			log.Printf("recv: %s", message)
+
 		case "CHAT_HISTORY_REQ":
-			if !getChat(&request.Body, &message, &mt, &id, c) {
+			bodyMap, ok := (request.Body).(map[string]interface{})
+			if !ok {
+				log.Println("Failed : couldn't get id from json")
 				continue
 			}
+
+			friendId, ok := (bodyMap["id"].(float64))
+			if !ok {
+				log.Println("Failed : id of wrong type")
+				continue
+			}
+
+			friendIdInt := int(friendId)
+			if !getChat(&friendIdInt, &mt, &id, c) {
+				currFriendIds[id] = -1
+				continue
+			}
+			currFriendIds[id] = friendIdInt
 		}
 	}
 }
@@ -87,8 +137,6 @@ func main() {
 	authRouter.Use(corsMiddleware)
 	mainRouter.Use(authorizationMiddleware)
 
-	//flag.Parse()
-	//log.SetFlags(0)
 	authRouter.HandleFunc("/login", login).Methods("POST")
 	authRouter.HandleFunc("/register", register).Methods("POST")
 
@@ -96,9 +144,10 @@ func main() {
 	mainRouter.HandleFunc("/logout", logout).Methods("POST")
 	mainRouter.HandleFunc("/friends", getFriends).Methods("GET")
 	mainRouter.HandleFunc("/info", getUserInfo).Methods("GET")
-	mainRouter.HandleFunc("/socket", socketHandler)
+	mainRouter.HandleFunc("/socket", socketIncomingHandler)
 	mainRouter.HandleFunc("/sendRelation", sendRelation).Methods("POST")
 	mainRouter.HandleFunc("/friendRequests", getFriendRequests).Methods("GET")
+	mainRouter.HandleFunc("/read", updateDMsToRead).Methods("POST")
 
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }
@@ -151,6 +200,8 @@ func authorizationMiddleware(next http.Handler) http.Handler {
 }
 
 func checkAuth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	jsonRes, _ := json.Marshal(apiResponse{Message: "AUTHORIZED"})
 	w.Write(jsonRes)
 }
@@ -202,7 +253,8 @@ func logout(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	tokenCookie := http.Cookie{Name: "xeno_token",
+	tokenCookie := http.Cookie{
+		Name:     "xeno_token",
 		Value:    "",
 		Expires:  time.Now().Add(-1 * time.Second),
 		Path:     "/",
@@ -277,11 +329,20 @@ func sendRelation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if receiverSocket, ok := sockets[newRelation.User2Id]; ok {
+		// Send refresh friends request and a notification to receiver client
+		sendRefresh(&newRelation.User2Id, receiverSocket, &newRelation.Relation)
+		if newRelation.Relation == 0 {
+			sendFRNotification(&id, receiverSocket)
+		}
+	}
 	jsonRes, _ := json.Marshal(apiResponse{Message: ret})
 	w.Write(jsonRes)
 }
 
 func getUserInfo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	tokenCookie, err := r.Cookie("xeno_token")
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -301,6 +362,8 @@ func getUserInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func getFriends(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	tokenCookie, err := r.Cookie("xeno_token")
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -320,27 +383,15 @@ func getFriends(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jsonUsers := structs.Jsonify(rows)
-	friends := []structs.ClientFriend{}
+	jsonString := structs.JsonifyRows(rows)
 
-	for _, jsonUser := range jsonUsers {
-		if jsonUser == "," {
-			continue
-		}
-		//log.Println(jsonUser)
-		user := &structs.ClientFriend{}
-		json.Unmarshal([]byte(jsonUser), user)
-		friends = append(friends, *user)
-	}
-
-	//c.IndentedJSON(http.StatusOK, users)
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	jsonRes, _ := json.Marshal(friends)
-	w.Write(jsonRes)
+	w.Write([]byte(jsonString))
 }
 
 func getFriendRequests(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	tokenCookie, err := r.Cookie("xeno_token")
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -360,19 +411,43 @@ func getFriendRequests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jsonFRs := structs.Jsonify(rows)
-	friendRequests := []structs.ClientFriendRequest{}
-	for _, jsonFR := range jsonFRs {
-		if jsonFR == "," {
-			continue
-		}
-		friendRequest := &structs.ClientFriendRequest{}
-		json.Unmarshal([]byte(jsonFR), friendRequest)
-		friendRequests = append(friendRequests, *friendRequest)
+	jsonString := structs.JsonifyRows(rows)
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(jsonString))
+}
+
+func updateDMsToRead(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var friend structs.ClientFriend
+	err := json.NewDecoder(r.Body).Decode(&friend)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		w.Write(jsonRes)
+		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	jsonRes, _ := json.Marshal(friendRequests)
+	tokenCookie, err := r.Cookie("xeno_token")
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		w.Write(jsonRes)
+		return
+	}
+
+	token := tokenCookie.Value
+	id := dbhandler.GetUserId(&token)
+
+	status := dbhandler.UpdateDMsToRead(&id, &friend.Id)
+	if status == "FAILED" {
+		w.WriteHeader(http.StatusBadRequest)
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		w.Write(jsonRes)
+		return
+	}
+
+	jsonRes, _ := json.Marshal(apiResponse{Message: status})
 	w.Write(jsonRes)
 }

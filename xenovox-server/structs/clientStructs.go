@@ -16,19 +16,27 @@ type ClientFriend struct {
 
 type ClientMessage struct {
 	Message    string `json:"message"`
-	SenderId   int    `json:"senderId"`
-	ReceiverId int    `json:"receiverId"`
+	SenderId   int    `json:"senderid"`
+	ReceiverId int    `json:"receiverid"`
 }
 
 type ClientChatHistory struct {
-	FriendId int             `json:"friendId"`
-	History  []ClientMessage `json:"history"`
+	FriendId int         `json:"friendid"`
+	History  interface{} `json:"history"`
 }
 
 type ClientFriendRequest struct {
-	RelationId int    `json:"relationId"`
+	RelationId int    `json:"relationid"`
 	Username   string `json:"username"`
-	UserId     int    `json:"userId"`
+	UserId     int    `json:"userid"`
+}
+
+type ClientNotifications struct {
+	SenderIds    []int `json:"senderids"`
+	SenderScores []int `json:"senderscores"`
+	GroupIds     []int `json:"groupids"`
+	GroupScores  []int `json:"groupscores"`
+	FriendReq    bool  `json:"friendreq"`
 }
 
 type ClientSocketMessage struct {

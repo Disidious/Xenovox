@@ -1,11 +1,13 @@
 import React from 'react';
 import {Modal, Button} from 'react-bootstrap';
+import Spinner from "./../components/loadingspinner";
 
 class AddFriendModal extends React.Component {
     constructor(props) {
         super(props);
         this.state = {
             frState: "STANDBY",
+            requestsState: "STANDBY",
             requests: []
         };
 
@@ -24,20 +26,21 @@ class AddFriendModal extends React.Component {
         }).then(response => response.text())
         .then(data => {
             var message = JSON.parse(data).message
-            console.log(message)
             this.setState({frState: message})
         })
     }
 
     getFriendRequests() {
+        this.setState({frState: this.state.frState, requestsState: "LOADING"})
         this.refreshRequests = false;
         fetch(this.props.url + '/friendRequests', {
             credentials: 'include',
             method: 'GET'
         }).then(response => response.json())
         .then(data => {
-            this.setState({frState: this.state.frState, requests: data})
-            console.log('gottem')
+            if(data.length === 0)
+                this.props.removeNoti()
+            this.setState({frState: this.state.frState, requestsState: "SUCCESS", requests: data})
         })
     }
 
@@ -90,7 +93,7 @@ class AddFriendModal extends React.Component {
                     <input type="number" id="addUserId" className='textbox-main' style={{width: "50%"}}/>
                     {
                         this.state.frState === 'STANDBY'?
-                        <br/>
+                        <p className="success-message">&nbsp;</p>
                         :
                         this.state.frState === 'SUCCESS' ?
                         <p className="success-message">
@@ -112,32 +115,43 @@ class AddFriendModal extends React.Component {
                 </Modal.Header>
                 <Modal.Body>
                     <br/>
-                    <table className="table">
-                        <tr>
-                            <th>Username#Id</th>
-                        </tr>
-                        {
-                            this.state.requests.map((el, key) => (
-                                <tr>
-                                    <td>
-                                        {el.username}#{el.userId}
-                                    </td>
-                                    <td style={{float: 'right'}}>
-                                        <Button className="btn-main btn-confirm" style={{marginRight: '0.5em'}}
-                                        onClick={()=>{ this.acceptRequest(el.userId) }}>&#10004;</Button>
+                    <table style={{width: "100%"}}>
+                        <tbody className="table">
+                            <tr>
+                                <th>Username#Id</th>
+                            </tr>
+                            {
+                                this.state.requests.map((el, key) => (
+                                    <tr key={el.key}>
+                                        <td>
+                                            {el.username}#{el.userid}
+                                        </td>
+                                        <td style={{float: 'right'}}>
+                                            <Button className="btn-main btn-confirm" style={{marginRight: '0.5em'}}
+                                            onClick={()=>{ this.acceptRequest(el.userid) }}>&#10004;</Button>
 
-                                        <Button className="btn-main btn-cancel"
-                                        onClick={()=>{ this.rejectRequest(el.userId) }}>&#10060;</Button>
-                                    </td>
-                                </tr>
-                            ))
-                        }
+                                            <Button className="btn-main btn-cancel"
+                                            onClick={()=>{ this.rejectRequest(el.userid) }}>&#10060;</Button>
+                                        </td>
+                                    </tr>
+                                ))
+                            }
+                        </tbody>
                     </table>
+                    {
+                        this.state.requestsState === 'LOADING' ?
+                        <center>
+                            <Spinner/>
+                        </center>
+                        :
+                        <div/>
+                    }
                 </Modal.Body>
                 <Modal.Footer>
                     <Button className="btn-main btn-cancel" onClick={() => {
                         this.props.onHide()
-                        this.setState({frState: "STANDBY"})
+                        this.refreshRequests = true;
+                        this.setState({frState: "STANDBY", requestsState: "STANDBY"})
                         }}>Close</Button>
                 </Modal.Footer>
             </Modal>

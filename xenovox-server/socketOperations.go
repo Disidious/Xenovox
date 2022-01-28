@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"reflect"
 
 	"github.com/gorilla/websocket"
 
@@ -10,50 +11,24 @@ import (
 	structs "github.com/Disidious/Xenovox/Structs"
 )
 
-func getChat(body *interface{}, message *[]byte, mt *int, id *int, c *websocket.Conn) bool {
-	// {"id": 11}
-	// log.Println(body.id)
-	// friendId := (*body).(int)
-	// log.Println(friendId)
-
-	bodyMap, ok := (*body).(map[string]interface{})
-	if !ok {
-		log.Println("Failed : couldn't get id from json")
-		return false
-	}
-
-	friendId, ok := (bodyMap["id"].(float64))
-	if !ok {
-		log.Println("Failed : id of wrong type")
-		return false
-	}
-
-	friendIdInt := int(friendId)
-	rows, status := dbhandler.GetChat(id, &friendIdInt)
+func getChat(friendId *int, mt *int, id *int, c *websocket.Conn) bool {
+	rows, status := dbhandler.GetChat(id, friendId)
 	if !status {
 		return false
 	}
 
-	jsonChat := structs.Jsonify(rows)
-	chatMessages := []structs.ClientMessage{}
+	history, ok := structs.StructifyRows(rows, reflect.TypeOf(structs.ClientMessage{}))
 
-	for _, jsonMessage := range jsonChat {
-		if jsonMessage == "," {
-			continue
-		}
-
-		chatM := &structs.ClientMessage{}
-		//dbChatM := &structs.Message{}
-		json.Unmarshal([]byte(jsonMessage), chatM)
-
-		chatMessages = append(chatMessages, *chatM)
+	if !ok {
+		log.Println("Failed: could not convert rows to struct")
+		return false
 	}
 
 	response := structs.ClientSocketMessage{
 		Type: "CHAT_HISTORY_RES",
 		Body: structs.ClientChatHistory{
-			History:  chatMessages,
-			FriendId: friendIdInt,
+			History:  history,
+			FriendId: *friendId,
 		},
 	}
 	jsonRes, _ := json.Marshal(response)
@@ -63,20 +38,9 @@ func getChat(body *interface{}, message *[]byte, mt *int, id *int, c *websocket.
 	return true
 }
 
-func sendDM(body *interface{}, message *[]byte, mt *int, id *int, c *websocket.Conn) bool {
-	// Convert message to Message object
-	var messageObj structs.Message
-	bodyBytes, _ := json.Marshal(body)
-	err := json.Unmarshal(bodyBytes, &messageObj)
-
-	if err != nil {
-		log.Println("Failed to unmarshal: ", err)
-		return false
-	}
-
+func sendDM(message *structs.Message, mt *int, id *int, c *websocket.Conn) bool {
 	// Insert message to database
-	messageObj.SenderId = *id
-	ret := dbhandler.InsertPrivateMessage(&messageObj)
+	ret := dbhandler.InsertPrivateMessage(message)
 	if ret == "FAILED" {
 		log.Println(ret)
 		return false
@@ -86,27 +50,83 @@ func sendDM(body *interface{}, message *[]byte, mt *int, id *int, c *websocket.C
 	}
 	response := structs.ClientSocketMessage{
 		Type: "DM",
-		Body: messageObj.Convert(),
+		Body: message.Convert(),
 	}
 	jsonRes, _ := json.Marshal(response)
-	log.Printf("recv: %s", message)
 
 	// Get socket of the receiver of the message
-	if receiverSocket, ok := sockets[messageObj.ReceiverId]; ok {
-		// Send message to receiver
-		err = receiverSocket.WriteMessage(*mt, jsonRes)
-		if err != nil {
-			log.Println("err:", err)
-		}
+	if receiverSocket, ok := sockets[message.ReceiverId]; ok {
+		// Send notification and message to receiver
+		receiverSocket.WriteMessage(*mt, jsonRes)
+		//sendNotification(&messageObj.ReceiverId, receiverSocket, *id, DM)
 	} else {
 		log.Println("Receiver Offline")
 	}
 
 	// Send message to sender
-	err = c.WriteMessage(*mt, jsonRes)
+	err := c.WriteMessage(*mt, jsonRes)
 	if err != nil {
 		log.Println("err:", err)
 	}
 
 	return true
+}
+
+func sendAllNotifications(id *int, c *websocket.Conn) {
+	set := dbhandler.GetUnreadMsgs(id)
+	jsonString := structs.JsonifyRedisZ(set)
+
+	var notifications structs.ClientNotifications
+	json.Unmarshal([]byte(jsonString), &notifications)
+
+	exists, status := dbhandler.FriendReqExists(id)
+	if !status {
+		log.Println("Failed : Couldn't send all notifications")
+		return
+	}
+
+	notifications.FriendReq = exists
+
+	response := structs.ClientSocketMessage{
+		Type: "ALL_NOTIFICATIONS",
+		Body: notifications,
+	}
+	jsonRes, _ := json.Marshal(response)
+
+	err := c.WriteMessage(1, jsonRes)
+	if err != nil {
+		log.Println("err:", err)
+	}
+}
+
+func sendFRNotification(id *int, c *websocket.Conn) {
+	response := structs.ClientSocketMessage{
+		Type: "FR_NOTI",
+		Body: structs.ClientNotifications{
+			FriendReq: true,
+		},
+	}
+
+	jsonRes, _ := json.Marshal(response)
+
+	err := c.WriteMessage(1, jsonRes)
+	if err != nil {
+		log.Println("err:", err)
+	}
+}
+
+func sendRefresh(id *int, c *websocket.Conn, relation *int) {
+	if *relation == 0 {
+		return
+	}
+
+	response := structs.ClientSocketMessage{
+		Type: "REFRESH_FRIENDS",
+		Body: nil,
+	}
+	jsonRes, _ := json.Marshal(response)
+	err := c.WriteMessage(1, jsonRes)
+	if err != nil {
+		log.Println("err:", err)
+	}
 }
