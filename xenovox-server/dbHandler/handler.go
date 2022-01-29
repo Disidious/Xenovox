@@ -46,6 +46,31 @@ func generateToken() string {
 	return hex.EncodeToString(b)
 }
 
+func InsertGroupMessage(message *structs.GroupMessage) string {
+	// Check if the relation is Blocked before sending the message
+	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2`
+	row := db.QueryRow(checkQ, message.SenderId, message.GroupId)
+	var count int
+	row.Scan(&count)
+	if count != 1 {
+		return "FAILED"
+	}
+
+	addQ := `INSERT INTO group_messages (senderid, groupid, message) VALUES($1, $2, $3)`
+	_, err := db.Exec(addQ, message.SenderId, message.GroupId, message.Message)
+	if err != nil {
+		log.Println(err)
+		return "FAILED"
+	}
+
+	// TODO: Send notifications to all members
+
+	// membersQ := `SELECT userid FROM group_members WHERE groupid = $1 AND userid != $2`
+	// rows, err := db.Query(membersQ, message.GroupId, message.SenderId)
+
+	return "SUCCESS"
+}
+
 func InsertPrivateMessage(message *structs.Message) string {
 	// Check if the relation is Blocked before sending the message
 	checkQ := `SELECT relation FROM relations WHERE (user1id = $1 AND user2id = $2) OR (user1id = $2 AND user2id = $1)`
@@ -195,9 +220,6 @@ func Login(user *structs.User) (string, string) {
 		storedId := getIdRedis(&token)
 		if storedId != id {
 			generate = true
-		}
-
-		if storedId != id {
 			rdb.Del(token)
 		}
 	}
@@ -289,6 +311,33 @@ func GetFriends(id *int) (rows *sql.Rows, status bool) {
 	} else {
 		status = true
 	}
+
+	return
+}
+
+func GetGroups(id *int) (rows *sql.Rows, status bool) {
+	rows, err := db.Query(`SELECT groups.id, groups.name, groups.ownerid, groups.picture 
+	FROM groups
+	INNER JOIN group_members
+	ON userid = $1 AND groupid = groups.id`, id)
+
+	if err != nil {
+		log.Fatal(err)
+		status = false
+	} else {
+		status = true
+	}
+
+	return
+}
+
+func GetAllConnections(id *int) (frows *sql.Rows, grows *sql.Rows, status bool) {
+	frows, status = GetFriends(id)
+	if !status {
+		return
+	}
+
+	grows, status = GetGroups(id)
 
 	return
 }
@@ -433,4 +482,35 @@ func FriendReqExists(id *int) (result bool, status bool) {
 	}
 
 	return
+}
+
+func JoinGroup(id *int, groupid *int) string {
+	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2`
+	row := db.QueryRow(checkQ, id, groupid)
+	var count int
+	row.Scan(&count)
+	if count != 0 {
+		return "EXISTS"
+	}
+
+	addQ := `INSERT INTO group_members (userid, groupid) VALUES($1, $2)`
+	_, err := db.Exec(addQ, id, groupid)
+	if err != nil {
+		log.Println(err)
+		return "FAILED"
+	}
+
+	return "SUCCESS"
+}
+
+func LeaveGroup(id *int, groupid *int) bool {
+	remQ := `DELETE FROM group_members WHERE userid = $1 AND groupid = $2`
+	_, err := db.Exec(remQ, id, groupid)
+
+	if err != nil || !removeUnreadMsg(groupid, id, true) {
+		log.Println(err)
+		return false
+	}
+
+	return true
 }

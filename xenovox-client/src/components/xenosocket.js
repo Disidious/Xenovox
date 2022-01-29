@@ -29,12 +29,18 @@ class Xenosocket{
             switch(data.type) {
                 case "DM":
                     if(this.chat.friendid === data.body.senderid || this.chat.friendid === data.body.receiverid) {
-                        var newChat = Object.assign({}, this.chat)
+                        let newChat = Object.assign({}, this.chat)
                         newChat.history.push(data.body)
                         this.setChat(newChat)
-                    } else if(!this.notifications.dms.includes(data.body.senderid)) {
-                        var newNoti = Object.assign({}, this.notifications)
-                        newNoti.dms.push(data.body.senderid)
+                    } else if(!this.notifications.senderids.includes(data.body.senderid)) {
+                        let newNoti = Object.assign({}, this.notifications)
+                        newNoti.senderids.push(data.body.senderid)
+                        newNoti.senderscores.push(1)
+                        this.setNotifications(newNoti)
+                    } else {
+                        var idx = this.notifications.senderids.indexOf(data.body.senderid)
+                        let newNoti = Object.assign({}, this.notifications)
+                        newNoti.senderscores[idx]++
                         this.setNotifications(newNoti)
                     }
                     break
@@ -44,14 +50,17 @@ class Xenosocket{
                     break
                 
                 case "ALL_NOTIFICATIONS":
-                    var newNotis = Object.assign({}, this.notifications)
-                    newNotis.dms = data.body.senderids
+                    let newNotis = Object.assign({}, this.notifications)
+                    newNotis.senderids = data.body.senderids
+                    newNotis.senderscores = data.body.senderscores
+                    newNotis.groupids = data.body.groupids
+                    newNotis.groupscores = data.body.groupscores
                     newNotis.friendreq = data.body.friendreq
                     this.setNotifications(newNotis)
                     break
                 
                 case "FR_NOTI":
-                    newNoti = Object.assign({}, this.notifications)
+                    let newNoti = Object.assign({}, this.notifications)
                     newNoti.friendreq = data.body.friendreq
                     this.setNotifications(newNoti)
                     break

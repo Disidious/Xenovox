@@ -6,6 +6,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faLocationArrow, faUserPlus } from '@fortawesome/free-solid-svg-icons'
 
 import AddFriendModal from './../components/modals'
+import Usermenu from './../components/menus'
 import Spinner from "./../components/loadingspinner";
 
 function sendDM(socket, friendId) {
@@ -37,15 +38,15 @@ function getUserInfo(url, socket, setState, setInfo) {
     fetch(url + '/info', {
         credentials: 'include',
         method: 'GET'
-    }).then(response => response.json())
+    }).then(response => {
+        if(response.status !== 200)
+            return null
+        return response.json()
+    })
     .then(data => {
         socket.userInfo = data
         setInfo(data)
         setState("DONE")
-    })
-    .catch((error) => {
-        setState("FAILED")
-        console.log(error)
     })
 }
 
@@ -53,13 +54,50 @@ function getFriends(url, setFriends) {
     fetch(url + '/friends', {
         credentials: 'include',
         method: 'GET'
-    }).then(response => response.json())
+    }).then(response => {
+        if(response.status !== 200)
+            return null
+        return response.json()
+    })
     .then(data => {
+        if(data === null)
+            return
+
         if(data.length === 0) {
             setFriends([{id:-1}])
-            return
+        } else {
+            setFriends(data)
         }
-        setFriends(data)
+    })
+    .catch((error) => {
+        console.log(error)
+    })
+}
+
+function getConnections(url, setFriends, setGroups) {
+    fetch(url + '/connections', {
+        credentials: 'include',
+        method: 'GET'
+    }).then(response => {
+        if(response.status !== 200)
+            return null
+        return response.json()
+    })
+    .then(data => {
+        if(data === null)
+            return
+
+        if(data.friends.length === 0) {
+            setFriends([{id:-1}])
+        } else {
+            setFriends(data.friends)
+        }
+
+        if(data.groups.length === 0) {
+            setGroups([{id:-1}])
+        } else {
+            setGroups(data.groups)
+        }
     })
     .catch((error) => {
         console.log(error)
@@ -71,7 +109,7 @@ function getChat(socket, friendId) {
 }
 
 function markAsRead(url, friendId, notifications, setNotifications) {
-    if(!notifications.dms.includes(friendId))
+    if(!notifications.senderids.includes(friendId))
         return
 
     fetch(url + '/read', {
@@ -80,11 +118,15 @@ function markAsRead(url, friendId, notifications, setNotifications) {
         body: JSON.stringify({
             id: friendId
         })
-    }).then(() => {
-        var notiIdx = notifications.dms.indexOf(friendId)
+    }).then(response => {
+        if(response.status !== 200)
+            return
+
+        var notiIdx = notifications.senderids.indexOf(friendId)
         if(notiIdx !== -1) {
             var newNotifications = Object.assign({}, notifications)
-            newNotifications.dms.splice(notiIdx, 1)
+            newNotifications.senderids.splice(notiIdx, 1)
+            newNotifications.senderscores.splice(notiIdx, 1)
             setNotifications(newNotifications)
         }
     })
@@ -96,12 +138,15 @@ function Home(props) {
 
     const[userInfo, setInfo] = useState({id: -1, username: "", name: "", email: "", picture: ""})
     const[friends, setFriends] = useState([])
+    const[groups, setGroups] = useState([])
     const[chat, setChat] = useState({friendid: -1, history:[]})
-    const[notifications, setNotifications] = useState({dms: [], groups: [], friendreq: false})
+    const[notifications, setNotifications] = useState({senderids: [], senderscores: [], groupids: [], groupscores: [], friendreq: false})
 
     const[loggedOut, setLoggedOut] = useState(false)
 
-    const[friendModalShow, setFriendModalShow] = React.useState(false);
+    const[userMenuProps, setUserMenuProps] = useState({display: 'none', top: '0', left: '0', userid: -1})
+
+    const[friendModalShow, setFriendModalShow] = useState(false);
 
     const handleEnter = (e) => {
         if(e.key !== 'Enter') {
@@ -121,11 +166,12 @@ function Home(props) {
         props.socket.setChat = setChat
         props.socket.setState = setSocState
         props.socket.setNotifications = setNotifications
-        props.socket.getFriends = () => {getFriends(props.url, setFriends)}
+        props.socket.getFriends = () => {getFriends(props.url, setFriends, setGroups)}
         props.socket.connect()
 
         getUserInfo(props.url, props.socket, setState, setInfo)
-        getFriends(props.url,setFriends)
+        //getFriends(props.url,setConnections)
+        getConnections(props.url, setFriends, setGroups)
 
         calledOnce.current = true
     }, [props.socket, props.url, chat])
@@ -143,7 +189,21 @@ function Home(props) {
 
     if(state === 'LOADING' || socketState === 'CONNECTING') {
         return (
-            <Spinner mode={"SCREEN"}/>
+            <div>
+                <Spinner mode={"SCREEN"}/>
+                {
+                    state === 'UNEXPECTED_FAILURE' ?
+                    <center>
+                        <p className="error-message">
+                            Wrong username or password
+                            <br/>
+                            Please try again
+                        </p>
+                    </center>
+                    :
+                    ""
+                }
+            </div>
         );
     }
 
@@ -172,7 +232,7 @@ function Home(props) {
             <Row className="width-fix">
                 <Col className="col-10">
                     <div className="chat-container">
-                        <div id="history" className="history-container">
+                        <div id="history" className="history-container scrollable">
                             {
                                 chat.history.map((el, key) => (
                                     <p key={key} className="chat-msg">
@@ -204,8 +264,8 @@ function Home(props) {
                     </div>
                 </Col>
                 <Col className="col-2">
-                    <div className="friends-container">
-                        <div style={{margin: "1em"}}>
+                    <div className="relations-container">
+                        <div className="friends-container">
                             <h1>Friends</h1>
                             <Button className={
                                 notifications.friendreq ?
@@ -216,6 +276,7 @@ function Home(props) {
                             onClick={() => setFriendModalShow(true)}>
                                 <FontAwesomeIcon icon={faUserPlus} size={'xs'} />
                             </Button>
+                            <div className="friend-list scrollable">
                             {
                                 friends.length === 0 ?
                                 <center style={{paddingTop: "50%"}}>
@@ -232,23 +293,33 @@ function Home(props) {
                                 </center>
                                 :
                                 friends.map((el, key) => (
-                                    <Button className={
-                                        notifications.dms.includes(el.id) ? 
+                                    <button className={
+                                        notifications.senderids.includes(el.id) ? 
                                         "friends-btn glowing-btn" 
                                         : 
                                         "friends-btn"
                                     } key={key} onClick={()=>{
                                         if(chat.friendid !== el.id) {
                                             getChat(props.socket, el.id)
-                                            if(notifications.dms.includes(el.id)) {
+                                            if(notifications.senderids.includes(el.id)) {
                                                 markAsRead(props.url, el.id, notifications, setNotifications)
                                             }
                                         }
-                                    }}>
+                                    }}
+                                    onContextMenu={()=>{}}>
                                         {el.username}
-                                    </Button>
+                                        {
+                                            notifications.senderids.includes(el.id) ?
+                                            <div className="unread-noti">
+                                                {notifications.senderscores[notifications.senderids.indexOf(el.id)]}
+                                            </div>
+                                            :
+                                            ""
+                                        }
+                                    </button>
                                 ))
                             }
+                            </div>
                         </div>
                     </div>
                 </Col>
@@ -258,7 +329,7 @@ function Home(props) {
             show={friendModalShow} 
             onHide={() => setFriendModalShow(false)} 
             url={props.url}
-            getFriends={()=>{getFriends(props.url, setFriends)}}
+            getFriends={()=>{getFriends(props.url, setFriends, setGroups)}}
             removeNoti={()=>{
                 var newNotifications = Object.assign({}, notifications)
                 newNotifications.friendreq = false

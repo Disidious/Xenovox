@@ -143,6 +143,7 @@ func main() {
 	mainRouter.HandleFunc("/checkauth", checkAuth).Methods("GET")
 	mainRouter.HandleFunc("/logout", logout).Methods("POST")
 	mainRouter.HandleFunc("/friends", getFriends).Methods("GET")
+	mainRouter.HandleFunc("/connections", getConnections).Methods("GET")
 	mainRouter.HandleFunc("/info", getUserInfo).Methods("GET")
 	mainRouter.HandleFunc("/socket", socketIncomingHandler)
 	mainRouter.HandleFunc("/sendRelation", sendRelation).Methods("POST")
@@ -204,6 +205,23 @@ func checkAuth(w http.ResponseWriter, r *http.Request) {
 
 	jsonRes, _ := json.Marshal(apiResponse{Message: "AUTHORIZED"})
 	w.Write(jsonRes)
+}
+
+func getId(w http.ResponseWriter, r *http.Request) (id int, ok bool) {
+	tokenCookie, err := r.Cookie("xeno_token")
+	if err != nil {
+		ok = false
+		w.WriteHeader(http.StatusBadRequest)
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		w.Write(jsonRes)
+		return
+	}
+
+	token := tokenCookie.Value
+	id = dbhandler.GetUserId(&token)
+	ok = true
+
+	return
 }
 
 func login(w http.ResponseWriter, r *http.Request) {
@@ -302,16 +320,11 @@ func sendRelation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokenCookie, err := r.Cookie("xeno_token")
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
-		w.Write(jsonRes)
+	id, ok := getId(w, r)
+	if !ok {
 		return
 	}
 
-	token := tokenCookie.Value
-	id := dbhandler.GetUserId(&token)
 	newRelation.User1Id = id
 
 	if id == newRelation.User2Id {
@@ -343,16 +356,11 @@ func sendRelation(w http.ResponseWriter, r *http.Request) {
 func getUserInfo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	tokenCookie, err := r.Cookie("xeno_token")
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
-		w.Write(jsonRes)
+	id, ok := getId(w, r)
+	if !ok {
 		return
 	}
 
-	token := tokenCookie.Value
-	id := dbhandler.GetUserId(&token)
 	row := dbhandler.GetUserInfo(&id)
 
 	var userInfo structs.ClientUser
@@ -364,16 +372,10 @@ func getUserInfo(w http.ResponseWriter, r *http.Request) {
 func getFriends(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	tokenCookie, err := r.Cookie("xeno_token")
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
-		w.Write(jsonRes)
+	id, ok := getId(w, r)
+	if !ok {
 		return
 	}
-
-	token := tokenCookie.Value
-	id := dbhandler.GetUserId(&token)
 
 	rows, status := dbhandler.GetFriends(&id)
 	if !status {
@@ -389,19 +391,37 @@ func getFriends(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(jsonString))
 }
 
-func getFriendRequests(w http.ResponseWriter, r *http.Request) {
+func getConnections(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	tokenCookie, err := r.Cookie("xeno_token")
-	if err != nil {
+	id, ok := getId(w, r)
+	if !ok {
+		return
+	}
+
+	frows, grows, status := dbhandler.GetAllConnections(&id)
+	if !status {
 		w.WriteHeader(http.StatusBadRequest)
 		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
 		w.Write(jsonRes)
 		return
 	}
 
-	token := tokenCookie.Value
-	id := dbhandler.GetUserId(&token)
+	fJsonString := structs.JsonifyRows(frows)
+	gJsonString := structs.JsonifyRows(grows)
+
+	jsonString := `{"friends":` + fJsonString + `,"groups":` + gJsonString + `}`
+
+	w.Write([]byte(jsonString))
+}
+
+func getFriendRequests(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	id, ok := getId(w, r)
+	if !ok {
+		return
+	}
 
 	rows, status := dbhandler.GetFriendRequests(&id)
 	if !status {
@@ -429,16 +449,10 @@ func updateDMsToRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokenCookie, err := r.Cookie("xeno_token")
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
-		w.Write(jsonRes)
+	id, ok := getId(w, r)
+	if !ok {
 		return
 	}
-
-	token := tokenCookie.Value
-	id := dbhandler.GetUserId(&token)
 
 	status := dbhandler.UpdateDMsToRead(&id, &friend.Id)
 	if status == "FAILED" {

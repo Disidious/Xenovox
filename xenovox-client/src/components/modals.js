@@ -122,7 +122,7 @@ class AddFriendModal extends React.Component {
                             </tr>
                             {
                                 this.state.requests.map((el, key) => (
-                                    <tr key={el.key}>
+                                    <tr key={key}>
                                         <td>
                                             {el.username}#{el.userid}
                                         </td>
