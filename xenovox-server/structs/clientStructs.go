@@ -8,21 +8,16 @@ type ClientUser struct {
 	Picture  string `json:"picture"`
 }
 
-type ClientFriend struct {
-	Id       int    `json:"id"`
-	Username string `json:"username"`
-	Picture  string `json:"picture"`
-}
-
-type ClientMessage struct {
+type ClientDM struct {
 	Message    string `json:"message"`
 	SenderId   int    `json:"senderid"`
 	ReceiverId int    `json:"receiverid"`
 }
 
 type ClientChatHistory struct {
-	FriendId int         `json:"friendid"`
-	History  interface{} `json:"history"`
+	Group   bool        `json:"group"`
+	ChatId  int         `json:"chatid"`
+	History interface{} `json:"history"`
 }
 
 type ClientFriendRequest struct {

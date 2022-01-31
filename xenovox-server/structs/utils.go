@@ -4,8 +4,8 @@ import (
 	"reflect"
 )
 
-func (m *Message) Convert() ClientMessage {
-	return ClientMessage{Message: m.Message, SenderId: m.SenderId, ReceiverId: m.ReceiverId}
+func (m *Message) Convert() ClientDM {
+	return ClientDM{Message: m.Message, SenderId: m.SenderId, ReceiverId: m.ReceiverId}
 }
 
 func GetFieldMap(obj interface{}) (fieldMap map[string]reflect.Value) {

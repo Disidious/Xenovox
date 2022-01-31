@@ -28,7 +28,7 @@ class Xenosocket{
             var data = JSON.parse(event.data)
             switch(data.type) {
                 case "DM":
-                    if(this.chat.friendid === data.body.senderid || this.chat.friendid === data.body.receiverid) {
+                    if(this.chat.chatid === data.body.senderid || this.chat.chatid === data.body.receiverid) {
                         let newChat = Object.assign({}, this.chat)
                         newChat.history.push(data.body)
                         this.setChat(newChat)
@@ -77,7 +77,10 @@ class Xenosocket{
         this.socket.onclose = () => {
             if(this.manualDisconnect)
                 return
-            this.connect()
+                
+            setTimeout(() => {
+                this.connect()
+            }, 5000)
         }
 
         this.socket.onerror = (error) => {
@@ -103,11 +106,21 @@ class Xenosocket{
         this.socket.send(body);
     }
 
-    getChat(friendId) {
+    getPrivateChat(friendId) {
         var body = JSON.stringify({
-            type: "CHAT_HISTORY_REQ",
+            type: "PRIVATE_HISTORY_REQ",
             body: {
                 id: friendId
+            }
+        })
+        this.socket.send(body);
+    }
+
+    getGroupChat(groupId) {
+        var body = JSON.stringify({
+            type: "GROUP_HISTORY_REQ",
+            body: {
+                id: groupId
             }
         })
         this.socket.send(body);

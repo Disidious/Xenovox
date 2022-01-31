@@ -104,8 +104,9 @@ function getConnections(url, setFriends, setGroups) {
     })
 }
 
-function getChat(socket, friendId) {
-    socket.getChat(friendId)
+function getChat(socket, friendId, group) {
+    if(!group)
+        socket.getPrivateChat(friendId)
 }
 
 function markAsRead(url, friendId, notifications, setNotifications) {
@@ -139,7 +140,7 @@ function Home(props) {
     const[userInfo, setInfo] = useState({id: -1, username: "", name: "", email: "", picture: ""})
     const[friends, setFriends] = useState([])
     const[groups, setGroups] = useState([])
-    const[chat, setChat] = useState({friendid: -1, history:[]})
+    const[chat, setChat] = useState({group: false, chatid: -1, history: []})
     const[notifications, setNotifications] = useState({senderids: [], senderscores: [], groupids: [], groupscores: [], friendreq: false})
 
     const[loggedOut, setLoggedOut] = useState(false)
@@ -152,7 +153,7 @@ function Home(props) {
         if(e.key !== 'Enter') {
             return
         }
-        sendDM(props.socket, chat.friendid)
+        sendDM(props.socket, chat.chatid)
     }
     
     props.socket.chat = chat
@@ -238,10 +239,10 @@ function Home(props) {
                                     <p key={key} className="chat-msg">
                                         <b>
                                             {
-                                                el.receiverid === userInfo.id ?
-                                                friends.find(friend => friend.id === chat.friendid).username
-                                                :
+                                                el.senderid === userInfo.id ?
                                                 userInfo.username
+                                                :
+                                                friends.find(friend => friend.id === chat.chatid).username
                                             }
                                         </b>
                                         <br/>
@@ -253,11 +254,11 @@ function Home(props) {
                         </div>
                         <div className="message-container">
                             <input type="text" id="message" className="message-box textbox-main" onKeyPress={(e) => handleEnter(e)} 
-                            disabled={chat.friendid === -1} autoComplete="off"/>
+                            disabled={chat.chatid === -1} autoComplete="off"/>
 
                             <Button type="button" className="btn-main btn-send " 
-                            onClick={() => sendDM(props.socket, chat.friendid)}
-                            disabled={chat.friendid === -1}>
+                            onClick={() => sendDM(props.socket, chat.chatid)}
+                            disabled={chat.chatid === -1}>
                                 <FontAwesomeIcon icon={faLocationArrow} />
                             </Button>
                         </div>
@@ -299,8 +300,8 @@ function Home(props) {
                                         : 
                                         "friends-btn"
                                     } key={key} onClick={()=>{
-                                        if(chat.friendid !== el.id) {
-                                            getChat(props.socket, el.id)
+                                        if(chat.chatid !== el.id) {
+                                            getChat(props.socket, el.id, false)
                                             if(notifications.senderids.includes(el.id)) {
                                                 markAsRead(props.url, el.id, notifications, setNotifications)
                                             }

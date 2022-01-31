@@ -17,6 +17,19 @@ type apiResponse struct {
 	Message string `json:"message"`
 }
 
+type ChatType int
+
+const (
+	None    = -1
+	Private = 0
+	Group   = 1
+)
+
+type chat struct {
+	chatType ChatType
+	chatId   int
+}
+
 var addr = flag.String("addr", "localhost:7777", "http service address")
 
 var upgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool {
@@ -25,12 +38,12 @@ var upgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool {
 }}
 
 var sockets map[int]*websocket.Conn = make(map[int]*websocket.Conn)
-var currFriendIds map[int]int = make(map[int]int)
+var currChats map[int]chat = make(map[int]chat)
 
 func resetSocket(id *int) {
 	sockets[*id].Close()
 	delete(sockets, *id)
-	delete(currFriendIds, *id)
+	delete(currChats, *id)
 }
 
 func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +67,10 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 
 	sendAllNotifications(&id, c)
 
-	currFriendIds[id] = -1
+	currChats[id] = chat{
+		chatType: None,
+		chatId:   -1,
+	}
 
 	for {
 		mt, message, err := c.ReadMessage()
@@ -90,7 +106,7 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			messageObj.SenderId = id
-			if currFriendId, ok := currFriendIds[messageObj.ReceiverId]; ok && currFriendId == id {
+			if currChat, ok := currChats[messageObj.ReceiverId]; ok && currChat.chatType == Private && currChat.chatId == id {
 				messageObj.Read = true
 			} else {
 				messageObj.Read = false
@@ -100,8 +116,9 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			log.Printf("recv: %s", message)
+		case "GM":
 
-		case "CHAT_HISTORY_REQ":
+		case "PRIVATE_HISTORY_REQ":
 			bodyMap, ok := (request.Body).(map[string]interface{})
 			if !ok {
 				log.Println("Failed : couldn't get id from json")
@@ -116,10 +133,16 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 
 			friendIdInt := int(friendId)
 			if !getChat(&friendIdInt, &mt, &id, c) {
-				currFriendIds[id] = -1
+				currChats[id] = chat{
+					chatType: Private,
+					chatId:   -1,
+				}
 				continue
 			}
-			currFriendIds[id] = friendIdInt
+			currChats[id] = chat{
+				chatType: Private,
+				chatId:   friendIdInt,
+			}
 		}
 	}
 }
@@ -440,7 +463,7 @@ func getFriendRequests(w http.ResponseWriter, r *http.Request) {
 func updateDMsToRead(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	var friend structs.ClientFriend
+	var friend structs.ClientUser
 	err := json.NewDecoder(r.Body).Decode(&friend)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)

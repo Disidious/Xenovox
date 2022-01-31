@@ -12,12 +12,12 @@ import (
 )
 
 func getChat(friendId *int, mt *int, id *int, c *websocket.Conn) bool {
-	rows, status := dbhandler.GetChat(id, friendId)
+	rows, status := dbhandler.GetPrivateChat(id, friendId)
 	if !status {
 		return false
 	}
 
-	history, ok := structs.StructifyRows(rows, reflect.TypeOf(structs.ClientMessage{}))
+	history, ok := structs.StructifyRows(rows, reflect.TypeOf(structs.ClientDM{}))
 
 	if !ok {
 		log.Println("Failed: could not convert rows to struct")
@@ -27,8 +27,9 @@ func getChat(friendId *int, mt *int, id *int, c *websocket.Conn) bool {
 	response := structs.ClientSocketMessage{
 		Type: "CHAT_HISTORY_RES",
 		Body: structs.ClientChatHistory{
-			History:  history,
-			FriendId: *friendId,
+			Group:   false,
+			History: history,
+			ChatId:  *friendId,
 		},
 	}
 	jsonRes, _ := json.Marshal(response)
@@ -40,7 +41,7 @@ func getChat(friendId *int, mt *int, id *int, c *websocket.Conn) bool {
 
 func sendDM(message *structs.Message, mt *int, id *int, c *websocket.Conn) bool {
 	// Insert message to database
-	ret := dbhandler.InsertPrivateMessage(message)
+	ret := dbhandler.InsertDirectMessage(message)
 	if ret == "FAILED" {
 		log.Println(ret)
 		return false
@@ -58,7 +59,6 @@ func sendDM(message *structs.Message, mt *int, id *int, c *websocket.Conn) bool 
 	if receiverSocket, ok := sockets[message.ReceiverId]; ok {
 		// Send notification and message to receiver
 		receiverSocket.WriteMessage(*mt, jsonRes)
-		//sendNotification(&messageObj.ReceiverId, receiverSocket, *id, DM)
 	} else {
 		log.Println("Receiver Offline")
 	}

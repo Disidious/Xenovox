@@ -71,7 +71,7 @@ func InsertGroupMessage(message *structs.GroupMessage) string {
 	return "SUCCESS"
 }
 
-func InsertPrivateMessage(message *structs.Message) string {
+func InsertDirectMessage(message *structs.Message) string {
 	// Check if the relation is Blocked before sending the message
 	checkQ := `SELECT relation FROM relations WHERE (user1id = $1 AND user2id = $2) OR (user1id = $2 AND user2id = $1)`
 	row := db.QueryRow(checkQ, message.SenderId, message.ReceiverId)
@@ -91,8 +91,8 @@ func InsertPrivateMessage(message *structs.Message) string {
 	return "SUCCESS"
 }
 
-func UpdateDMsToRead(id *int, friendId *int) string {
-	if !removeUnreadMsg(friendId, id, false) {
+func UpdateDMsToRead(id *int, id2 *int) string {
+	if !removeUnreadMsg(id2, id, false) {
 		return "FAILED"
 	} else {
 		return "SUCCESS"
@@ -342,9 +342,9 @@ func GetAllConnections(id *int) (frows *sql.Rows, grows *sql.Rows, status bool) 
 	return
 }
 
-func GetChat(id *int, friendId *int) (rows *sql.Rows, status bool) {
-	rows, err := db.Query(`SELECT message, senderId, receiverId FROM private_messages 
-	WHERE (senderId = $1 AND receiverId = $2) OR (senderId = $2 AND receiverId = $1) ORDER BY id`, id, friendId)
+func GetPrivateChat(id *int, id2 *int) (rows *sql.Rows, status bool) {
+	rows, err := db.Query(`SELECT message, senderId FROM private_messages 
+	WHERE (senderId = $1 AND receiverId = $2) OR (senderId = $2 AND receiverId = $1) ORDER BY id`, id, id2)
 
 	if err != nil {
 		log.Fatal(err)
