@@ -117,6 +117,28 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			log.Printf("recv: %s", message)
 		case "GM":
+			bodyMap, ok := (request.Body).(map[string]interface{})
+			if !ok {
+				log.Println("Failed : couldn't get id from json")
+				continue
+			}
+
+			// Convert message to Message object
+			var messageObj structs.GroupMessage
+			ok = structs.StructifyMap(&bodyMap, &messageObj)
+
+			if !ok {
+				log.Println("Failed : couldn't convert map to struct")
+				continue
+			}
+
+			messageObj.SenderId = id
+			// TODO: Send notifications to all members
+
+			if !sendGM(&messageObj, &mt, &id, c) {
+				continue
+			}
+			log.Printf("recv: %s", message)
 
 		case "PRIVATE_HISTORY_REQ":
 			bodyMap, ok := (request.Body).(map[string]interface{})
@@ -132,7 +154,7 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			friendIdInt := int(friendId)
-			if !getChat(&friendIdInt, &mt, &id, c) {
+			if !getPrivateChat(&friendIdInt, &mt, &id, c) {
 				currChats[id] = chat{
 					chatType: Private,
 					chatId:   -1,
@@ -143,6 +165,32 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 				chatType: Private,
 				chatId:   friendIdInt,
 			}
+		case "GROUP_HISTORY_REQ":
+			bodyMap, ok := (request.Body).(map[string]interface{})
+			if !ok {
+				log.Println("Failed : couldn't get id from json")
+				continue
+			}
+
+			groupId, ok := (bodyMap["id"].(float64))
+			if !ok {
+				log.Println("Failed : id of wrong type")
+				continue
+			}
+
+			groupIdInt := int(groupId)
+			if !getGroupChatAndMembers(&groupIdInt, &mt, &id, c) {
+				currChats[id] = chat{
+					chatType: Private,
+					chatId:   -1,
+				}
+				continue
+			}
+			currChats[id] = chat{
+				chatType: Group,
+				chatId:   groupIdInt,
+			}
+
 		}
 	}
 }

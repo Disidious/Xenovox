@@ -5,6 +5,7 @@ class Xenosocket{
 
         this.chat = null
         this.setChat = null
+        this.setGroupMembers = null
 
         this.notifications = null
         this.setNotifications = null
@@ -44,9 +45,20 @@ class Xenosocket{
                         this.setNotifications(newNoti)
                     }
                     break
-
+                case "GM":
+                    if(this.chat.chatid === data.body.groupid) {
+                        let newChat = Object.assign({}, this.chat)
+                        newChat.history.push(data.body)
+                        this.setChat(newChat)
+                    }
+                    // TODO: Handle Notifications
+                    break
                 case "CHAT_HISTORY_RES":  
-                    this.setChat(data.body)
+                    if(data.body.history.group) {
+                        this.setGroupMembers(data.body.members)
+                    }
+                    this.setChat(data.body.history)
+
                     break
                 
                 case "ALL_NOTIFICATIONS":
@@ -100,6 +112,17 @@ class Xenosocket{
             type: "DM",
             body: {
                 receiverid: parseInt(receiverId),
+                message: message,
+            }
+        })
+        this.socket.send(body);
+    }
+
+    sendGM(message, groupId) {
+        var body = JSON.stringify({
+            type: "GM",
+            body: {
+                groupid: parseInt(groupId),
                 message: message,
             }
         })

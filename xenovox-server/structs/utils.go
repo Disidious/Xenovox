@@ -8,6 +8,10 @@ func (m *Message) Convert() ClientDM {
 	return ClientDM{Message: m.Message, SenderId: m.SenderId, ReceiverId: m.ReceiverId}
 }
 
+func (m *GroupMessage) Convert() ClientGM {
+	return ClientGM{Message: m.Message, SenderId: m.SenderId, GroupId: m.GroupId}
+}
+
 func GetFieldMap(obj interface{}) (fieldMap map[string]reflect.Value) {
 	val := reflect.ValueOf(obj)
 	fieldMap = make(map[string]reflect.Value)

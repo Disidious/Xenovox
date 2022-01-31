@@ -11,7 +11,7 @@ import (
 	structs "github.com/Disidious/Xenovox/Structs"
 )
 
-func getChat(friendId *int, mt *int, id *int, c *websocket.Conn) bool {
+func getPrivateChat(friendId *int, mt *int, id *int, c *websocket.Conn) bool {
 	rows, status := dbhandler.GetPrivateChat(id, friendId)
 	if !status {
 		return false
@@ -24,13 +24,53 @@ func getChat(friendId *int, mt *int, id *int, c *websocket.Conn) bool {
 		return false
 	}
 
+	body := make(map[string]interface{})
+	body["history"] = structs.ClientChatHistory{
+		Group:   false,
+		History: history,
+		ChatId:  *friendId,
+	}
+
 	response := structs.ClientSocketMessage{
 		Type: "CHAT_HISTORY_RES",
-		Body: structs.ClientChatHistory{
-			Group:   false,
-			History: history,
-			ChatId:  *friendId,
-		},
+		Body: body,
+	}
+	jsonRes, _ := json.Marshal(response)
+
+	c.WriteMessage(*mt, jsonRes)
+
+	return true
+}
+
+func getGroupChatAndMembers(groupId *int, mt *int, id *int, c *websocket.Conn) bool {
+	hrows, mrows, status := dbhandler.GetGroupChatAndMembers(id, groupId)
+	if !status {
+		return false
+	}
+
+	history, ok := structs.StructifyRows(hrows, reflect.TypeOf(structs.ClientGM{}))
+	if !ok {
+		log.Println("Failed: could not convert hrows to struct")
+		return false
+	}
+
+	members, ok := structs.StructifyRows(mrows, reflect.TypeOf(structs.ClientUser{}))
+	if !ok {
+		log.Println("Failed: could not convert mrows to struct")
+		return false
+	}
+
+	body := make(map[string]interface{})
+	body["history"] = structs.ClientChatHistory{
+		Group:   true,
+		History: history,
+		ChatId:  *groupId,
+	}
+	body["members"] = members
+
+	response := structs.ClientSocketMessage{
+		Type: "CHAT_HISTORY_RES",
+		Body: body,
 	}
 	jsonRes, _ := json.Marshal(response)
 
@@ -57,11 +97,35 @@ func sendDM(message *structs.Message, mt *int, id *int, c *websocket.Conn) bool 
 
 	// Get socket of the receiver of the message
 	if receiverSocket, ok := sockets[message.ReceiverId]; ok {
-		// Send notification and message to receiver
+		// Send message to receiver
 		receiverSocket.WriteMessage(*mt, jsonRes)
 	} else {
 		log.Println("Receiver Offline")
 	}
+
+	// Send message to sender
+	err := c.WriteMessage(*mt, jsonRes)
+	if err != nil {
+		log.Println("err:", err)
+	}
+
+	return true
+}
+
+func sendGM(message *structs.GroupMessage, mt *int, id *int, c *websocket.Conn) bool {
+	// Insert message to database
+	ret := dbhandler.InsertGroupMessage(message)
+	if ret == "FAILED" {
+		log.Println(ret)
+		return false
+	}
+	response := structs.ClientSocketMessage{
+		Type: "GM",
+		Body: message.Convert(),
+	}
+	jsonRes, _ := json.Marshal(response)
+
+	// TODO: Send message to all members
 
 	// Send message to sender
 	err := c.WriteMessage(*mt, jsonRes)

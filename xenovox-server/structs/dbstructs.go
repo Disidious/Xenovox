@@ -22,7 +22,7 @@ type GroupMessage struct {
 	Id       int    `json:"id"`
 	Message  string `json:"message"`
 	SenderId int    `json:"senderid"`
-	GroupId  int    `json:"receiverid"`
+	GroupId  int    `json:"groupid"`
 }
 
 type Relation struct {

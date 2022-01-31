@@ -356,6 +356,35 @@ func GetPrivateChat(id *int, id2 *int) (rows *sql.Rows, status bool) {
 	return
 }
 
+func GetGroupChatAndMembers(id *int, groupId *int) (hrows *sql.Rows, mrows *sql.Rows, status bool) {
+	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2`
+	row := db.QueryRow(checkQ, id, groupId)
+	var count int
+	row.Scan(&count)
+	if count == 0 {
+		status = false
+		return
+	}
+
+	hrows, err := db.Query(`SELECT message, senderid FROM group_messages WHERE groupid = $1`, groupId)
+	if err != nil {
+		log.Fatal(err)
+		status = false
+		return
+	}
+
+	mrows, err = db.Query(`SELECT users.id as "id", username, picture FROM users 
+	INNER JOIN group_members ON userid = users.id AND groupid = $1`, groupId)
+	if err != nil {
+		log.Fatal(err)
+		status = false
+		return
+	}
+
+	status = true
+	return
+}
+
 func GetFriendRequests(id *int) (rows *sql.Rows, status bool) {
 	rows, err := db.Query(`SELECT r.id as relationid, u.username, u.id as userid FROM relations r INNER JOIN users u ON r.user1id = u.id 
 							WHERE r.user2id = $1 AND r.relation = 0`, id)
@@ -503,11 +532,11 @@ func JoinGroup(id *int, groupid *int) string {
 	return "SUCCESS"
 }
 
-func LeaveGroup(id *int, groupid *int) bool {
+func LeaveGroup(id *int, groupId *int) bool {
 	remQ := `DELETE FROM group_members WHERE userid = $1 AND groupid = $2`
-	_, err := db.Exec(remQ, id, groupid)
+	_, err := db.Exec(remQ, id, groupId)
 
-	if err != nil || !removeUnreadMsg(groupid, id, true) {
+	if err != nil || !removeUnreadMsg(groupId, id, true) {
 		log.Println(err)
 		return false
 	}

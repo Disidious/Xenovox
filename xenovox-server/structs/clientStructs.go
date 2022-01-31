@@ -14,6 +14,12 @@ type ClientDM struct {
 	ReceiverId int    `json:"receiverid"`
 }
 
+type ClientGM struct {
+	Message  string `json:"message"`
+	SenderId int    `json:"senderid"`
+	GroupId  int    `json:"groupid"`
+}
+
 type ClientChatHistory struct {
 	Group   bool        `json:"group"`
 	ChatId  int         `json:"chatid"`

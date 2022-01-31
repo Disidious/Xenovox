@@ -1,6 +1,6 @@
 /* eslint-disable jsx-a11y/anchor-is-valid */
 import React, { useEffect, useState } from 'react';
-import { Col, Row, Button, Modal } from 'react-bootstrap';
+import { Col, Row, Button } from 'react-bootstrap';
 import { Navigate } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faLocationArrow, faUserPlus } from '@fortawesome/free-solid-svg-icons'
@@ -10,7 +10,6 @@ import Usermenu from './../components/menus'
 import Spinner from "./../components/loadingspinner";
 
 function sendDM(socket, friendId) {
-    //socket.sendDM("message", 11)
     var messageBox = document.getElementById("message");
 
     if(messageBox.value.replaceAll(' ','') === "") {
@@ -18,6 +17,17 @@ function sendDM(socket, friendId) {
     }
 
     socket.sendDM(messageBox.value, friendId);
+    document.getElementById("message").value = "";
+}
+
+function sendGM(socket, groupId) {
+    var messageBox = document.getElementById("message");
+
+    if(messageBox.value.replaceAll(' ','') === "") {
+        return;
+    }
+
+    socket.sendGM(messageBox.value, groupId);
     document.getElementById("message").value = "";
 }
 
@@ -104,9 +114,13 @@ function getConnections(url, setFriends, setGroups) {
     })
 }
 
-function getChat(socket, friendId, group) {
-    if(!group)
-        socket.getPrivateChat(friendId)
+function getChat(socket, chatId, group) {
+    if(!group) {
+        socket.getPrivateChat(chatId)
+        return
+    }
+    
+    socket.getGroupChat(chatId)
 }
 
 function markAsRead(url, friendId, notifications, setNotifications) {
@@ -140,6 +154,7 @@ function Home(props) {
     const[userInfo, setInfo] = useState({id: -1, username: "", name: "", email: "", picture: ""})
     const[friends, setFriends] = useState([])
     const[groups, setGroups] = useState([])
+    const[groupMembers, setGroupMembers] = useState([])
     const[chat, setChat] = useState({group: false, chatid: -1, history: []})
     const[notifications, setNotifications] = useState({senderids: [], senderscores: [], groupids: [], groupscores: [], friendreq: false})
 
@@ -149,11 +164,25 @@ function Home(props) {
 
     const[friendModalShow, setFriendModalShow] = useState(false);
 
+    const handleHistory = (id, isGroup) => {
+        if(chat.chatid !== id) {
+            getChat(props.socket, id, isGroup)
+            if(notifications.senderids.includes(id) && !isGroup) {
+                markAsRead(props.url, id, notifications, setNotifications)
+            }
+        }
+    }
+    const handleMsg = () => {
+        if(!chat.group)
+            sendDM(props.socket, chat.chatid)
+        else
+            sendGM(props.socket, chat.chatid)
+    }
     const handleEnter = (e) => {
         if(e.key !== 'Enter') {
             return
         }
-        sendDM(props.socket, chat.chatid)
+        handleMsg()
     }
     
     props.socket.chat = chat
@@ -165,9 +194,10 @@ function Home(props) {
             return
         }
         props.socket.setChat = setChat
+        props.socket.setGroupMembers = setGroupMembers
         props.socket.setState = setSocState
         props.socket.setNotifications = setNotifications
-        props.socket.getFriends = () => {getFriends(props.url, setFriends, setGroups)}
+        props.socket.getFriends = () => {getFriends(props.url, setFriends)}
         props.socket.connect()
 
         getUserInfo(props.url, props.socket, setState, setInfo)
@@ -208,6 +238,7 @@ function Home(props) {
         );
     }
 
+    console.log("Refreshed")
     return (
         <div className="home-container">
             <Row className="width-fix">
@@ -225,6 +256,10 @@ function Home(props) {
                 </Col>
                 <Col>
                     <Button type="button" className="btn-main" style={{float: "right"}} 
+                        onClick={() => handleHistory(1, true)}>
+                        Temp
+                    </Button>
+                    <Button type="button" className="btn-main" style={{float: "right"}} 
                     onClick={() => logout(setLoggedOut, props.url, props.socket)}>
                         Logout
                     </Button>
@@ -237,14 +272,26 @@ function Home(props) {
                             {
                                 chat.history.map((el, key) => (
                                     <p key={key} className="chat-msg">
-                                        <b>
-                                            {
-                                                el.senderid === userInfo.id ?
-                                                userInfo.username
-                                                :
-                                                friends.find(friend => friend.id === chat.chatid).username
-                                            }
-                                        </b>
+                                        {
+                                            !chat.group ?
+                                            <b>
+                                                {
+                                                    el.senderid === userInfo.id ?
+                                                    userInfo.username
+                                                    :
+                                                    friends.find(friend => friend.id === el.senderid).username
+                                                }
+                                            </b>
+                                            :
+                                            <b>
+                                                {
+                                                    el.senderid === userInfo.id ?
+                                                    userInfo.username
+                                                    :
+                                                    groupMembers.find(member => member.id === el.senderid).username
+                                                }
+                                            </b>
+                                        }
                                         <br/>
                                         {el.message}
                                         <br/>
@@ -257,7 +304,9 @@ function Home(props) {
                             disabled={chat.chatid === -1} autoComplete="off"/>
 
                             <Button type="button" className="btn-main btn-send " 
-                            onClick={() => sendDM(props.socket, chat.chatid)}
+                            onClick={() => {
+                                handleMsg()
+                            }}
                             disabled={chat.chatid === -1}>
                                 <FontAwesomeIcon icon={faLocationArrow} />
                             </Button>
@@ -300,12 +349,7 @@ function Home(props) {
                                         : 
                                         "friends-btn"
                                     } key={key} onClick={()=>{
-                                        if(chat.chatid !== el.id) {
-                                            getChat(props.socket, el.id, false)
-                                            if(notifications.senderids.includes(el.id)) {
-                                                markAsRead(props.url, el.id, notifications, setNotifications)
-                                            }
-                                        }
+                                        handleHistory(el.id, false)
                                     }}
                                     onContextMenu={()=>{}}>
                                         {el.username}
