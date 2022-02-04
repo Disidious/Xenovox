@@ -100,10 +100,7 @@ func AppendUnreadGM(groupId *int, users *[]structs.User) {
 	}
 }
 func UpdateGMsToRead(groupId *int, id *int) bool {
-	if !removeUnreadMsg(groupId, id, true) {
-		return false
-	}
-	return true
+	return removeUnreadMsg(groupId, id, true)
 }
 func UpdateDMsToRead(senderId *int, receiverId *int) bool {
 	return removeUnreadMsg(senderId, receiverId, false)

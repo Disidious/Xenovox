@@ -2,6 +2,7 @@ class Xenosocket{
     constructor() {
         this.socket = null
         this.manualDisconnect = false
+        this.reconnected = false
 
         this.chat = null
         this.setChat = null
@@ -10,19 +11,34 @@ class Xenosocket{
         this.notifications = null
         this.setNotifications = null
 
+        this.refreshed = null
+
         this.getFriends = () => {}
 
         this.setState = null
-
-        this.userInfo = null
     }
 
     connect() {
+        if(this.socket !== null && this.socket.readyState === WebSocket.OPEN)
+            return
+
+        console.log('opened')
         this.socket = new WebSocket("ws://localhost:7777/socket");
         this.manualDisconnect = false
         
         this.socket.onopen = () => {
             this.setState("DONE")
+            if(this.reconnected) {
+                this.reconnected = false
+                if(this.chat.chatid === -1)
+                    return
+
+                if(this.chat.group) {
+                    this.getGroupChat(this.chat.chatid)
+                } else {
+                    this.getPrivateChat(this.chat.chatid)
+                }
+            }
         };
         
         this.socket.onmessage = (event) => {
@@ -89,10 +105,12 @@ class Xenosocket{
         this.socket.onclose = () => {
             if(this.manualDisconnect)
                 return
-                
+            console.log('closed')
             setTimeout(() => {
+                this.refreshed.current = false
+                this.reconnected = true
                 this.connect()
-            }, 5000)
+            }, 2000)
         }
 
         this.socket.onerror = (error) => {

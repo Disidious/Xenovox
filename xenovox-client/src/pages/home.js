@@ -206,6 +206,7 @@ function Home(props) {
         props.socket.setGroupMembers = setGroupMembers
         props.socket.setState = setSocState
         props.socket.setNotifications = setNotifications
+        props.socket.refreshed = calledOnce
         props.socket.getFriends = () => {getFriends(props.url, setFriends)}
         props.socket.connect()
 

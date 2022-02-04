@@ -41,8 +41,8 @@ var sockets map[int]*websocket.Conn = make(map[int]*websocket.Conn)
 var currChats map[int]chat = make(map[int]chat)
 
 func resetSocket(id *int) {
+	log.Println("Closing Socket ID", *id)
 	sockets[*id].Close()
-	delete(sockets, *id)
 	delete(currChats, *id)
 }
 
