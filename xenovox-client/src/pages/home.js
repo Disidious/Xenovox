@@ -6,7 +6,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faLocationArrow, faUserPlus } from '@fortawesome/free-solid-svg-icons'
 
 import AddFriendModal from './../components/modals'
-import Usermenu from './../components/menus'
+import UserMenu from './../components/menus'
 import Spinner from "./../components/loadingspinner";
 
 function sendDM(socket, friendId) {
@@ -123,26 +123,33 @@ function getChat(socket, chatId, group) {
     socket.getGroupChat(chatId)
 }
 
-function markAsRead(url, friendId, notifications, setNotifications) {
-    if(!notifications.senderids.includes(friendId))
-        return
-
+function markAsRead(url, chatId, isGroup, notifications, setNotifications) {
     fetch(url + '/read', {
         credentials: 'include',
         method: 'POST',
         body: JSON.stringify({
-            id: friendId
+            group: isGroup,
+            id: chatId
         })
     }).then(response => {
         if(response.status !== 200)
             return
-
-        var notiIdx = notifications.senderids.indexOf(friendId)
-        if(notiIdx !== -1) {
-            var newNotifications = Object.assign({}, notifications)
-            newNotifications.senderids.splice(notiIdx, 1)
-            newNotifications.senderscores.splice(notiIdx, 1)
-            setNotifications(newNotifications)
+        if(!isGroup) {
+            let notiIdx = notifications.senderids.indexOf(chatId)
+            if(notiIdx !== -1) {
+                let newNotifications = Object.assign({}, notifications)
+                newNotifications.senderids.splice(notiIdx, 1)
+                newNotifications.senderscores.splice(notiIdx, 1)
+                setNotifications(newNotifications)
+            }
+        } else {
+            let notiIdx = notifications.groupids.indexOf(chatId)
+            if(notiIdx !== -1) {
+                let newNotifications = Object.assign({}, notifications)
+                newNotifications.groupids.splice(notiIdx, 1)
+                newNotifications.groupscores.splice(notiIdx, 1)
+                setNotifications(newNotifications)
+            }
         }
     })
 }
@@ -167,8 +174,10 @@ function Home(props) {
     const handleHistory = (id, isGroup) => {
         if(chat.chatid !== id) {
             getChat(props.socket, id, isGroup)
-            if(notifications.senderids.includes(id) && !isGroup) {
-                markAsRead(props.url, id, notifications, setNotifications)
+            if(!isGroup && notifications.senderids.includes(id)) {
+                markAsRead(props.url, id, false, notifications, setNotifications)
+            } else if(isGroup && notifications.groupids.includes(id)) {
+                markAsRead(props.url, id, true, notifications, setNotifications)
             }
         }
     }
@@ -374,7 +383,7 @@ function Home(props) {
             show={friendModalShow} 
             onHide={() => setFriendModalShow(false)} 
             url={props.url}
-            getFriends={()=>{getFriends(props.url, setFriends, setGroups)}}
+            getFriends={()=>{getFriends(props.url, setFriends)}}
             removeNoti={()=>{
                 var newNotifications = Object.assign({}, notifications)
                 newNotifications.friendreq = false

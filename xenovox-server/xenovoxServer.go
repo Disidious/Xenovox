@@ -106,13 +106,7 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			messageObj.SenderId = id
-			if currChat, ok := currChats[messageObj.ReceiverId]; ok && currChat.chatType == Private && currChat.chatId == id {
-				messageObj.Read = true
-			} else {
-				messageObj.Read = false
-			}
-
-			if !sendDM(&messageObj, &mt, &id, c) {
+			if !sendDM(&messageObj, &mt) {
 				continue
 			}
 			log.Printf("recv: %s", message)
@@ -135,7 +129,7 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 			messageObj.SenderId = id
 			// TODO: Send notifications to all members
 
-			if !sendGM(&messageObj, &mt, &id, c) {
+			if !sendGM(&messageObj, &mt) {
 				continue
 			}
 			log.Printf("recv: %s", message)
@@ -283,7 +277,7 @@ func getId(w http.ResponseWriter, r *http.Request) (id int, ok bool) {
 	if err != nil {
 		ok = false
 		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
 		w.Write(jsonRes)
 		return
 	}
@@ -302,7 +296,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(&user)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
 		w.Write(jsonRes)
 		return
 	}
@@ -322,7 +316,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 			HttpOnly: true}
 
 		http.SetCookie(w, &tokenCookie)
-		w.WriteHeader(http.StatusOK)
+
 		jsonRes, _ := json.Marshal(apiResponse{Message: "LOGGED_IN"})
 		w.Write(jsonRes)
 
@@ -350,7 +344,7 @@ func logout(w http.ResponseWriter, r *http.Request) {
 		Domain:   "localhost",
 		HttpOnly: true}
 	http.SetCookie(w, &tokenCookie)
-	w.WriteHeader(http.StatusOK)
+
 	jsonRes, _ := json.Marshal(apiResponse{Message: "LOGGED_OUT"})
 	w.Write(jsonRes)
 }
@@ -362,7 +356,7 @@ func register(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(&newUser)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
 		w.Write(jsonRes)
 		return
 	}
@@ -386,7 +380,7 @@ func sendRelation(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(&newRelation)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
 		w.Write(jsonRes)
 		return
 	}
@@ -408,7 +402,7 @@ func sendRelation(w http.ResponseWriter, r *http.Request) {
 	ret := dbhandler.UpsertRelation(&newRelation)
 	if ret == "FAILED" {
 		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
 		w.Write(jsonRes)
 		return
 	}
@@ -451,14 +445,13 @@ func getFriends(w http.ResponseWriter, r *http.Request) {
 	rows, status := dbhandler.GetFriends(&id)
 	if !status {
 		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
 		w.Write(jsonRes)
 		return
 	}
 
 	jsonString := structs.JsonifyRows(rows)
 
-	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(jsonString))
 }
 
@@ -473,7 +466,7 @@ func getConnections(w http.ResponseWriter, r *http.Request) {
 	frows, grows, status := dbhandler.GetAllConnections(&id)
 	if !status {
 		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
 		w.Write(jsonRes)
 		return
 	}
@@ -497,42 +490,48 @@ func getFriendRequests(w http.ResponseWriter, r *http.Request) {
 	rows, status := dbhandler.GetFriendRequests(&id)
 	if !status {
 		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
 		w.Write(jsonRes)
 		return
 	}
 
 	jsonString := structs.JsonifyRows(rows)
 
-	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(jsonString))
 }
 
 func updateDMsToRead(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	var friend structs.ClientUser
-	err := json.NewDecoder(r.Body).Decode(&friend)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
-		w.Write(jsonRes)
-		return
-	}
-
 	id, ok := getId(w, r)
 	if !ok {
 		return
 	}
 
-	status := dbhandler.UpdateDMsToRead(&id, &friend.Id)
-	if status == "FAILED" {
+	var body map[string]interface{}
+	err := json.NewDecoder(r.Body).Decode(&body)
+	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UEXPECTED_FAILURE"})
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
 		w.Write(jsonRes)
 		return
 	}
 
-	jsonRes, _ := json.Marshal(apiResponse{Message: status})
+	chatId := int(body["id"].(float64))
+	log.Println("came here")
+	if !body["group"].(bool) {
+		ok = dbhandler.UpdateDMsToRead(&chatId, &id)
+	} else {
+		ok = dbhandler.UpdateGMsToRead(&chatId, &id)
+	}
+
+	if !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
+		w.Write(jsonRes)
+		return
+	}
+
+	jsonRes, _ := json.Marshal(apiResponse{Message: "SUCCESS"})
 	w.Write(jsonRes)
 }

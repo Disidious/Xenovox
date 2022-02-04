@@ -79,7 +79,7 @@ func getGroupChatAndMembers(groupId *int, mt *int, id *int, c *websocket.Conn) b
 	return true
 }
 
-func sendDM(message *structs.Message, mt *int, id *int, c *websocket.Conn) bool {
+func sendDM(message *structs.Message, mt *int) bool {
 	// Insert message to database
 	ret := dbhandler.InsertDirectMessage(message)
 	if ret == "FAILED" {
@@ -95,6 +95,10 @@ func sendDM(message *structs.Message, mt *int, id *int, c *websocket.Conn) bool 
 	}
 	jsonRes, _ := json.Marshal(response)
 
+	if currChat, ok := currChats[message.ReceiverId]; !ok || currChat.chatType != Private || currChat.chatId != message.SenderId {
+		dbhandler.AppendUnreadDM(&message.SenderId, &message.ReceiverId)
+	}
+
 	// Get socket of the receiver of the message
 	if receiverSocket, ok := sockets[message.ReceiverId]; ok {
 		// Send message to receiver
@@ -104,7 +108,7 @@ func sendDM(message *structs.Message, mt *int, id *int, c *websocket.Conn) bool 
 	}
 
 	// Send message to sender
-	err := c.WriteMessage(*mt, jsonRes)
+	err := sockets[message.SenderId].WriteMessage(*mt, jsonRes)
 	if err != nil {
 		log.Println("err:", err)
 	}
@@ -112,7 +116,7 @@ func sendDM(message *structs.Message, mt *int, id *int, c *websocket.Conn) bool 
 	return true
 }
 
-func sendGM(message *structs.GroupMessage, mt *int, id *int, c *websocket.Conn) bool {
+func sendGM(message *structs.GroupMessage, mt *int) bool {
 	// Insert message to database
 	ret := dbhandler.InsertGroupMessage(message)
 	if ret == "FAILED" {
@@ -125,10 +129,33 @@ func sendGM(message *structs.GroupMessage, mt *int, id *int, c *websocket.Conn) 
 	}
 	jsonRes, _ := json.Marshal(response)
 
-	// TODO: Send message to all members
+	// Store notifications for all group members that are offline or not on chat
+	mrows, ok := dbhandler.GetGroupMembers(&message.GroupId)
+	if ok {
+		members, ok := structs.StructifyRows(mrows, reflect.TypeOf(structs.User{}))
+		if ok {
+			var membersToNotify []structs.User
+			for _, member := range members {
+				castedMember := member.(*structs.User)
+				if castedMember.Id == message.SenderId {
+					continue
+				}
+
+				if receiverSocket, ok := sockets[castedMember.Id]; ok {
+					// Send message to receiver
+					receiverSocket.WriteMessage(*mt, jsonRes)
+				}
+
+				if currChat, ok := currChats[castedMember.Id]; !ok || currChat.chatType != Group || currChat.chatId != message.GroupId {
+					membersToNotify = append(membersToNotify, *castedMember)
+				}
+			}
+			dbhandler.AppendUnreadGM(&message.GroupId, &membersToNotify)
+		}
+	}
 
 	// Send message to sender
-	err := c.WriteMessage(*mt, jsonRes)
+	err := sockets[message.SenderId].WriteMessage(*mt, jsonRes)
 	if err != nil {
 		log.Println("err:", err)
 	}

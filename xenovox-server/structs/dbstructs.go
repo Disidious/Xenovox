@@ -15,7 +15,6 @@ type Message struct {
 	Message    string `json:"message"`
 	SenderId   int    `json:"senderid"`
 	ReceiverId int    `json:"receiverid"`
-	Read       bool   `json:"read"`
 }
 
 type GroupMessage struct {

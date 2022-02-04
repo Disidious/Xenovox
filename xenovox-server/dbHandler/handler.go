@@ -83,7 +83,7 @@ func InsertDirectMessage(message *structs.Message) string {
 
 	addQ := `INSERT INTO private_messages (senderId, receiverId, message) VALUES($1, $2, $3)`
 	_, err := db.Exec(addQ, message.SenderId, message.ReceiverId, message.Message)
-	if err != nil || (!message.Read && !appendUnreadMsg(&message.SenderId, &message.ReceiverId, false)) {
+	if err != nil {
 		log.Println(err)
 		return "FAILED"
 	}
@@ -91,12 +91,22 @@ func InsertDirectMessage(message *structs.Message) string {
 	return "SUCCESS"
 }
 
-func UpdateDMsToRead(id *int, id2 *int) string {
-	if !removeUnreadMsg(id2, id, false) {
-		return "FAILED"
-	} else {
-		return "SUCCESS"
+func AppendUnreadDM(senderId *int, receiverId *int) bool {
+	return appendUnreadMsg(senderId, receiverId, false)
+}
+func AppendUnreadGM(groupId *int, users *[]structs.User) {
+	for _, user := range *users {
+		appendUnreadMsg(groupId, &user.Id, true)
 	}
+}
+func UpdateGMsToRead(groupId *int, id *int) bool {
+	if !removeUnreadMsg(groupId, id, true) {
+		return false
+	}
+	return true
+}
+func UpdateDMsToRead(senderId *int, receiverId *int) bool {
+	return removeUnreadMsg(senderId, receiverId, false)
 }
 func GetUnreadMsgs(id *int) *[]redis.Z {
 	key := "N-" + strconv.Itoa(*id)
@@ -356,6 +366,19 @@ func GetPrivateChat(id *int, id2 *int) (rows *sql.Rows, status bool) {
 	return
 }
 
+func GetGroupMembers(groupId *int) (rows *sql.Rows, status bool) {
+	rows, err := db.Query(`SELECT users.id as "id", username, picture FROM users 
+	INNER JOIN group_members ON userid = users.id AND groupid = $1`, groupId)
+	if err != nil {
+		log.Fatal(err)
+		status = false
+		return
+	}
+
+	status = true
+	return
+}
+
 func GetGroupChatAndMembers(id *int, groupId *int) (hrows *sql.Rows, mrows *sql.Rows, status bool) {
 	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2`
 	row := db.QueryRow(checkQ, id, groupId)
@@ -373,9 +396,8 @@ func GetGroupChatAndMembers(id *int, groupId *int) (hrows *sql.Rows, mrows *sql.
 		return
 	}
 
-	mrows, err = db.Query(`SELECT users.id as "id", username, picture FROM users 
-	INNER JOIN group_members ON userid = users.id AND groupid = $1`, groupId)
-	if err != nil {
+	mrows, ok := GetGroupMembers(groupId)
+	if !ok {
 		log.Fatal(err)
 		status = false
 		return
