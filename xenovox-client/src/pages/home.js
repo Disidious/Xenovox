@@ -167,9 +167,17 @@ function Home(props) {
 
     const[loggedOut, setLoggedOut] = useState(false)
 
-    const[userMenuProps, setUserMenuProps] = useState({display: 'none', top: '0', left: '0', userid: -1})
+    const[userMenuProps, setUserMenuProps] = useState({display: 'none', top: -1, left: -1, userid: -1})
 
     const[friendModalShow, setFriendModalShow] = useState(false);
+
+    const handleContextMenu = (event, userId) => {
+        event.preventDefault()
+        let left = event.clientX
+        let top = event.clientY
+        let display = 'block'
+        setUserMenuProps({display: display, top: top, left: left, userid: userId})
+    }
 
     const handleHistory = (id, isGroup) => {
         if(chat.chatid !== id) {
@@ -211,11 +219,19 @@ function Home(props) {
         props.socket.connect()
 
         getUserInfo(props.url, props.socket, setState, setInfo)
-        //getFriends(props.url,setConnections)
         getConnections(props.url, setFriends, setGroups)
 
+        document.addEventListener('click', (event) => {
+            let userMenu = document.getElementById("userMenu")
+            if(userMenu === null || userMenu.style.display === 'none') {
+                return
+            }
+
+            setUserMenuProps({display: 'none', top: -1, left: -1, userid: -1})
+        })
+
         calledOnce.current = true
-    }, [props.socket, props.url, chat])
+    }, [props.socket, props.url, chat, userMenuProps])
 
     useEffect(()=>{
         var history = document.getElementById("history");
@@ -250,146 +266,153 @@ function Home(props) {
 
     console.log("Refreshed")
     return (
-        <div className="home-container">
-            <Row className="width-fix">
-                <Col style={{float: "left"}} >
-                    <div className='user-info'>
-                        <div>
-                            <h1 style={{float: "left"}}>
-                                {userInfo.username}
-                            </h1>
-                            <h1 style={{color: "rgb(51, 153, 255)"}}>
-                                #{userInfo.id} 
-                            </h1>
-                        </div>
-                    </div>
-                </Col>
-                <Col>
-                    <Button type="button" className="btn-main" style={{float: "right"}} 
-                        onClick={() => handleHistory(1, true)}>
-                        Temp
-                    </Button>
-                    <Button type="button" className="btn-main" style={{float: "right"}} 
-                    onClick={() => logout(setLoggedOut, props.url, props.socket)}>
-                        Logout
-                    </Button>
-                </Col>
-            </Row>
-            <Row className="width-fix">
-                <Col className="col-10">
-                    <div className="chat-container">
-                        <div id="history" className="history-container scrollable">
-                            {
-                                chat.history.map((el, key) => (
-                                    <p key={key} className="chat-msg">
-                                        {
-                                            !chat.group ?
-                                            <b>
-                                                {
-                                                    el.senderid === userInfo.id ?
-                                                    userInfo.username
-                                                    :
-                                                    friends.find(friend => friend.id === el.senderid).username
-                                                }
-                                            </b>
-                                            :
-                                            <b>
-                                                {
-                                                    el.senderid === userInfo.id ?
-                                                    userInfo.username
-                                                    :
-                                                    groupMembers.find(member => member.id === el.senderid).username
-                                                }
-                                            </b>
-                                        }
-                                        <br/>
-                                        {el.message}
-                                        <br/>
-                                    </p>
-                                ))
-                            }
-                        </div>
-                        <div className="message-container">
-                            <input type="text" id="message" className="message-box textbox-main" onKeyPress={(e) => handleEnter(e)} 
-                            disabled={chat.chatid === -1} autoComplete="off"/>
-
-                            <Button type="button" className="btn-main btn-send " 
-                            onClick={() => {
-                                handleMsg()
-                            }}
-                            disabled={chat.chatid === -1}>
-                                <FontAwesomeIcon icon={faLocationArrow} />
-                            </Button>
-                        </div>
-                    </div>
-                </Col>
-                <Col className="col-2">
-                    <div className="relations-container">
-                        <div className="friends-container">
-                            <h1>Friends</h1>
-                            <Button className={
-                                notifications.friendreq ?
-                                "glowing-btn btn-small"
-                                :
-                                "btn-small"
-                            }
-                            onClick={() => setFriendModalShow(true)}>
-                                <FontAwesomeIcon icon={faUserPlus} size={'xs'} />
-                            </Button>
-                            <div className="friend-list scrollable">
-                            {
-                                friends.length === 0 ?
-                                <center style={{paddingTop: "50%"}}>
-                                    <br/>
-                                    <Spinner/>
-                                </center>
-                                :
-                                friends[0].id === -1 ?
-                                <center style={{paddingTop: "50%"}}>
-                                    <br/>
-                                    <p className="info-message">
-                                        You don't have any friends
-                                    </p>
-                                </center>
-                                :
-                                friends.map((el, key) => (
-                                    <button className={
-                                        notifications.senderids.includes(el.id) ? 
-                                        "friends-btn glowing-btn" 
-                                        : 
-                                        "friends-btn"
-                                    } key={key} onClick={()=>{
-                                        handleHistory(el.id, false)
-                                    }}
-                                    onContextMenu={()=>{}}>
-                                        {el.username}
-                                        {
-                                            notifications.senderids.includes(el.id) ?
-                                            <div className="unread-noti">
-                                                {notifications.senderscores[notifications.senderids.indexOf(el.id)]}
-                                            </div>
-                                            :
-                                            ""
-                                        }
-                                    </button>
-                                ))
-                            }
+        <div>
+            <UserMenu
+            url={props.url}
+            info={userMenuProps}
+            refreshFriends={() => {getFriends(props.url, setFriends)}}
+            />
+            <div className="home-container">
+                <Row className="width-fix">
+                    <Col style={{float: "left"}} >
+                        <div className='user-info'>
+                            <div>
+                                <h1 style={{float: "left"}}>
+                                    {userInfo.username}
+                                </h1>
+                                <h1 style={{color: "rgb(51, 153, 255)"}}>
+                                    #{userInfo.id} 
+                                </h1>
                             </div>
                         </div>
-                    </div>
-                </Col>
-            </Row>
+                    </Col>
+                    <Col>
+                        <Button type="button" className="btn-main" style={{float: "right"}} 
+                            onClick={() => handleHistory(1, true)}>
+                            Temp
+                        </Button>
+                        <Button type="button" className="btn-main" style={{float: "right"}} 
+                        onClick={() => logout(setLoggedOut, props.url, props.socket)}>
+                            Logout
+                        </Button>
+                    </Col>
+                </Row>
+                <Row className="width-fix">
+                    <Col className="col-10">
+                        <div className="chat-container">
+                            <div id="history" className="history-container scrollable">
+                                {
+                                    chat.history.map((el, key) => (
+                                        <p key={key} className="chat-msg">
+                                            {
+                                                !chat.group ?
+                                                <b>
+                                                    {
+                                                        el.senderid === userInfo.id ?
+                                                        userInfo.username
+                                                        :
+                                                        friends.find(friend => friend.id === el.senderid).username
+                                                    }
+                                                </b>
+                                                :
+                                                <b>
+                                                    {
+                                                        el.senderid === userInfo.id ?
+                                                        userInfo.username
+                                                        :
+                                                        groupMembers.find(member => member.id === el.senderid).username
+                                                    }
+                                                </b>
+                                            }
+                                            <br/>
+                                            {el.message}
+                                            <br/>
+                                        </p>
+                                    ))
+                                }
+                            </div>
+                            <div className="message-container">
+                                <input type="text" id="message" className="message-box textbox-main" onKeyPress={(e) => handleEnter(e)} 
+                                disabled={chat.chatid === -1} autoComplete="off"/>
 
-            <AddFriendModal 
-            show={friendModalShow} 
-            onHide={() => setFriendModalShow(false)} 
-            url={props.url}
-            getFriends={()=>{getFriends(props.url, setFriends)}}
-            removeNoti={()=>{
-                var newNotifications = Object.assign({}, notifications)
-                newNotifications.friendreq = false
-                setNotifications(newNotifications)
-            }}/>
+                                <Button type="button" className="btn-main btn-send " 
+                                onClick={() => {
+                                    handleMsg()
+                                }}
+                                disabled={chat.chatid === -1}>
+                                    <FontAwesomeIcon icon={faLocationArrow} />
+                                </Button>
+                            </div>
+                        </div>
+                    </Col>
+                    <Col className="col-2">
+                        <div className="relations-container">
+                            <div className="friends-container">
+                                <h1>Friends</h1>
+                                <Button className={
+                                    notifications.friendreq ?
+                                    "glowing-btn btn-small"
+                                    :
+                                    "btn-small"
+                                }
+                                onClick={() => setFriendModalShow(true)}>
+                                    <FontAwesomeIcon icon={faUserPlus} size={'xs'} />
+                                </Button>
+                                <div className="friend-list scrollable">
+                                {
+                                    friends.length === 0 ?
+                                    <center style={{paddingTop: "50%"}}>
+                                        <br/>
+                                        <Spinner/>
+                                    </center>
+                                    :
+                                    friends[0].id === -1 ?
+                                    <center style={{paddingTop: "50%"}}>
+                                        <br/>
+                                        <p className="info-message">
+                                            You don't have any friends
+                                        </p>
+                                    </center>
+                                    :
+                                    friends.map((el, key) => (
+                                        <button className={
+                                            notifications.senderids.includes(el.id) ? 
+                                            "friends-btn glowing-btn" 
+                                            : 
+                                            "friends-btn"
+                                        } key={key} onClick={()=>{
+                                            handleHistory(el.id, false)
+                                        }}
+                                        onContextMenu={event=>handleContextMenu(event, el.id)}>
+                                            {el.username}
+                                            {
+                                                notifications.senderids.includes(el.id) ?
+                                                <div className="unread-noti">
+                                                    {notifications.senderscores[notifications.senderids.indexOf(el.id)]}
+                                                </div>
+                                                :
+                                                ""
+                                            }
+                                        </button>
+                                    ))
+                                }
+                                </div>
+                            </div>
+                        </div>
+                    </Col>
+                </Row>
+
+                <AddFriendModal 
+                show={friendModalShow} 
+                onHide={() => setFriendModalShow(false)} 
+                url={props.url}
+                getFriends={()=>{getFriends(props.url, setFriends)}}
+                removeNoti={()=>{
+                    var newNotifications = Object.assign({}, notifications)
+                    newNotifications.friendreq = false
+                    setNotifications(newNotifications)
+                }}/>
+            </div>
         </div>
     );
 }
