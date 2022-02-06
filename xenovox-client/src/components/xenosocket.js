@@ -55,7 +55,7 @@ class Xenosocket{
                         newNoti.senderscores.push(1)
                         this.setNotifications(newNoti)
                     } else {
-                        var idx = this.notifications.senderids.indexOf(data.body.senderid)
+                        let idx = this.notifications.senderids.indexOf(data.body.senderid)
                         let newNoti = Object.assign({}, this.notifications)
                         newNoti.senderscores[idx]++
                         this.setNotifications(newNoti)
@@ -66,8 +66,17 @@ class Xenosocket{
                         let newChat = Object.assign({}, this.chat)
                         newChat.history.push(data.body)
                         this.setChat(newChat)
+                    } else if(!this.notifications.groupids.includes(data.body.groupid)) {
+                        let newNoti = Object.assign({}, this.notifications)
+                        newNoti.groupids.push(data.body.groupid)
+                        newNoti.groupscores.push(1)
+                        this.setNotifications(newNoti)
+                    } else {
+                        let idx = this.notifications.groupids.indexOf(data.body.groupid)
+                        let newNoti = Object.assign({}, this.notifications)
+                        newNoti.groupscores[idx]++
+                        this.setNotifications(newNoti)
                     }
-                    // TODO: Handle Notifications
                     break
                 case "CHAT_HISTORY_RES":  
                     if(data.body.history.group) {

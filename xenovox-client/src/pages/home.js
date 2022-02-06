@@ -154,6 +154,13 @@ function markAsRead(url, chatId, isGroup, notifications, setNotifications) {
     })
 }
 
+function switchTabs(relationsTab, setRelationsTab, isGroup) {
+    if(isGroup && !relationsTab)
+        setRelationsTab(true);
+    else if(!isGroup && relationsTab)
+        setRelationsTab(false);
+}
+
 function Home(props) {
     const[state, setState] = useState("LOADING")
     const[socketState, setSocState] = useState("CONNECTING")
@@ -167,16 +174,17 @@ function Home(props) {
 
     const[loggedOut, setLoggedOut] = useState(false)
 
-    const[userMenuProps, setUserMenuProps] = useState({display: 'none', top: -1, left: -1, userid: -1})
+    const[userMenuProps, setUserMenuProps] = useState({display: 'none', top: -1, left: -1, group: false, chatid: -1})
 
     const[friendModalShow, setFriendModalShow] = useState(false);
+    const[relationsTab, setRelationsTab] = useState(false);
 
-    const handleContextMenu = (event, userId) => {
+    const handleContextMenu = (event, chatId, isGroup) => {
         event.preventDefault()
         let left = event.clientX
         let top = event.clientY
         let display = 'block'
-        setUserMenuProps({display: display, top: top, left: left, userid: userId})
+        setUserMenuProps({display: display, top: top, left: left, group: isGroup, chatid: chatId})
     }
 
     const handleHistory = (id, isGroup) => {
@@ -300,6 +308,31 @@ function Home(props) {
                 <Row className="width-fix">
                     <Col className="col-10">
                         <div className="chat-container">
+                            {
+                                chat.chatid !== -1 ?
+                                <div className='user-info-chat'>
+                                    <div>
+                                        <h1 style={{float: "left", fontSize: "large!important"}}>
+                                            {
+                                                !chat.group ?
+                                                "@" + friends.find(friend => friend.id === chat.chatid).username
+                                                :
+                                                chat.group ?
+                                                "@" + groups.find(group => group.id === chat.chatid).name
+                                                :
+                                                ""
+                                            }
+                                        </h1>
+                                        <h1 style={{color: "rgb(51, 153, 255)"}}>
+                                            {
+                                                "#" + chat.chatid
+                                            } 
+                                        </h1>
+                                    </div>
+                                </div>
+                                :
+                                ""
+                            }
                             <div id="history" className="history-container scrollable">
                                 {
                                     chat.history.map((el, key) => (
@@ -347,8 +380,13 @@ function Home(props) {
                     </Col>
                     <Col className="col-2">
                         <div className="relations-container">
-                            <div className="friends-container">
-                                <h1>Friends</h1>
+                            <div className="tab-container">
+                                {
+                                    !relationsTab ?
+                                    <h1>Friends</h1>
+                                    :
+                                    <h1>Groups</h1>
+                                }
                                 <Button className={
                                     notifications.friendreq ?
                                     "glowing-btn btn-small"
@@ -358,8 +396,10 @@ function Home(props) {
                                 onClick={() => setFriendModalShow(true)}>
                                     <FontAwesomeIcon icon={faUserPlus} size={'xs'} />
                                 </Button>
-                                <div className="friend-list scrollable">
+                                <div className="tab-list scrollable">
                                 {
+                                    !relationsTab ?
+                                    // Friends here
                                     friends.length === 0 ?
                                     <center style={{paddingTop: "50%"}}>
                                         <br/>
@@ -377,13 +417,14 @@ function Home(props) {
                                     friends.map((el, key) => (
                                         <button className={
                                             notifications.senderids.includes(el.id) ? 
-                                            "friends-btn glowing-btn" 
+                                            "relation-btn glowing-btn" 
                                             : 
-                                            "friends-btn"
+                                            "relation-btn"
                                         } key={key} onClick={()=>{
                                             handleHistory(el.id, false)
                                         }}
-                                        onContextMenu={event=>handleContextMenu(event, el.id)}>
+                                        onContextMenu={event=>handleContextMenu(event, el.id, false)}
+                                        disabled={el.id === chat.chatid}>
                                             {el.username}
                                             {
                                                 notifications.senderids.includes(el.id) ?
@@ -395,8 +436,53 @@ function Home(props) {
                                             }
                                         </button>
                                     ))
+                                    :
+                                    // Groups here
+                                    groups.length === 0 ?
+                                    <center style={{paddingTop: "50%"}}>
+                                        <br/>
+                                        <Spinner/>
+                                    </center>
+                                    :
+                                    groups[0].id === -1 ?
+                                    <center style={{paddingTop: "50%"}}>
+                                        <br/>
+                                        <p className="info-message">
+                                            You are not in any group
+                                        </p>
+                                    </center>
+                                    :
+                                    groups.map((el, key) => (
+                                        <button className={
+                                            notifications.groupids.includes(el.id) ? 
+                                            "relation-btn glowing-btn" 
+                                            : 
+                                            "relation-btn"
+                                        } key={key} onClick={()=>{
+                                            handleHistory(el.id, true)
+                                        }}
+                                        onContextMenu={event=>handleContextMenu(event, el.id, true)}
+                                        disabled={el.id === chat.chatid}>
+                                            {el.name}
+                                            {
+                                                notifications.groupids.includes(el.id) ?
+                                                <div className="unread-noti">
+                                                    {notifications.groupscores[notifications.groupids.indexOf(el.id)]}
+                                                </div>
+                                                :
+                                                ""
+                                            }
+                                        </button>
+                                    ))
                                 }
                                 </div>
+                            </div>
+                            <div className="relations-tabs">
+                                <button className='friends-tab' disabled={!relationsTab}
+                                onClick={()=>switchTabs(relationsTab, setRelationsTab, false)}>Friends</button>
+                                
+                                <button className='groups-tab' disabled={relationsTab}
+                                onClick={()=>switchTabs(relationsTab, setRelationsTab, true)}>Groups</button>
                             </div>
                         </div>
                     </Col>

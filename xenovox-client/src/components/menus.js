@@ -6,7 +6,7 @@ class UserMenu extends React.Component {
             credentials: 'include',
             method: 'POST',
             body: JSON.stringify({
-                user2Id: parseInt(this.props.info.userid),
+                user2Id: parseInt(this.props.info.chatid),
                 relation: 2
             })
         }).then(()=>{
@@ -19,7 +19,7 @@ class UserMenu extends React.Component {
             credentials: 'include',
             method: 'POST',
             body: JSON.stringify({
-                user2Id: parseInt(this.props.info.userid),
+                user2Id: parseInt(this.props.info.chatid),
                 relation: -1
             })
         }).then(()=>{
@@ -53,11 +53,20 @@ class UserMenu extends React.Component {
             id="userMenu"
             className="user-menu" 
             style={{display: this.props.info.display}}>
-                <ul>
-                    <li><button>Invite to Group</button></li>
-                    <li><button onClick={()=>this.unfriendUser()}>Unfriend</button></li>
-                    <li><button onClick={()=>this.blockUser()}>Block</button></li>
-                </ul>
+                {
+                    !this.props.info.group ?
+                    <ul>
+                        <li><button>Invite to Group</button></li>
+                        <li><button onClick={()=>this.unfriendUser()}>Unfriend</button></li>
+                        <li><button onClick={()=>this.blockUser()}>Block</button></li>
+                    </ul>
+                    :
+                    <ul>
+                        <li><button>Show Members</button></li>
+                        <li><button>Leave Group</button></li>
+                    </ul>
+                    
+                }
             </div>  
         );
     }
