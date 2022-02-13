@@ -9,7 +9,7 @@ func (m *Message) Convert() ClientDM {
 }
 
 func (m *GroupMessage) Convert() ClientGM {
-	return ClientGM{Message: m.Message, SenderId: m.SenderId, GroupId: m.GroupId}
+	return ClientGM{Message: m.Message, SenderId: m.SenderId, GroupId: m.GroupId, IsSystem: m.IsSystem}
 }
 
 func GetFieldMap(obj interface{}) (fieldMap map[string]reflect.Value) {

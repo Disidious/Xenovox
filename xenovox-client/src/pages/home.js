@@ -1,34 +1,34 @@
 /* eslint-disable jsx-a11y/anchor-is-valid */
-import React, { useEffect, useState } from 'react';
-import { Col, Row, Button } from 'react-bootstrap';
+import React, { useEffect, useState } from 'react'
+import { Col, Row, Button } from 'react-bootstrap'
 import { Navigate } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faLocationArrow, faUserPlus } from '@fortawesome/free-solid-svg-icons'
+import { faLocationArrow, faUserPlus, faPlus } from '@fortawesome/free-solid-svg-icons'
 
-import AddFriendModal from './../components/modals'
+import {AddFriendModal, GroupInviteModal, CreateGroupModal} from './../components/modals'
 import UserMenu from './../components/menus'
-import Spinner from "./../components/loadingspinner";
+import Spinner from "./../components/loadingspinner"
 
 function sendDM(socket, friendId) {
-    var messageBox = document.getElementById("message");
+    var messageBox = document.getElementById("message")
 
     if(messageBox.value.replaceAll(' ','') === "") {
-        return;
+        return
     }
 
-    socket.sendDM(messageBox.value, friendId);
-    document.getElementById("message").value = "";
+    socket.sendDM(messageBox.value, friendId)
+    document.getElementById("message").value = ""
 }
 
 function sendGM(socket, groupId) {
-    var messageBox = document.getElementById("message");
+    var messageBox = document.getElementById("message")
 
     if(messageBox.value.replaceAll(' ','') === "") {
-        return;
+        return
     }
 
-    socket.sendGM(messageBox.value, groupId);
-    document.getElementById("message").value = "";
+    socket.sendGM(messageBox.value, groupId)
+    document.getElementById("message").value = ""
 }
 
 function logout(setLoggedOut, url, socket) {
@@ -57,6 +57,30 @@ function getUserInfo(url, socket, setState, setInfo) {
         socket.userInfo = data
         setInfo(data)
         setState("DONE")
+    })
+}
+
+function getGroups(url, setGroups) {
+    fetch(url + '/groups', {
+        credentials: 'include',
+        method: 'GET'
+    }).then(response => {
+        if(response.status !== 200)
+            return null
+        return response.json()
+    })
+    .then(data => {
+        if(data === null)
+            return
+
+        if(data.length === 0) {
+            setGroups([{id:-1}])
+        } else {
+            setGroups(data)
+        }
+    })
+    .catch((error) => {
+        console.log(error)
     })
 }
 
@@ -156,9 +180,13 @@ function markAsRead(url, chatId, isGroup, notifications, setNotifications) {
 
 function switchTabs(relationsTab, setRelationsTab, isGroup) {
     if(isGroup && !relationsTab)
-        setRelationsTab(true);
+        setRelationsTab(true)
     else if(!isGroup && relationsTab)
-        setRelationsTab(false);
+        setRelationsTab(false)
+}
+
+function setPrevChatId(prevChatId, chatId) {
+    prevChatId.current = chatId
 }
 
 function Home(props) {
@@ -171,13 +199,18 @@ function Home(props) {
     const[groupMembers, setGroupMembers] = useState([])
     const[chat, setChat] = useState({group: false, chatid: -1, history: []})
     const[notifications, setNotifications] = useState({senderids: [], senderscores: [], groupids: [], groupscores: [], friendreq: false})
+    const newDividerIdx = React.useRef(-1)
+    const prevUnreadScore = React.useRef(-1)
 
     const[loggedOut, setLoggedOut] = useState(false)
 
     const[userMenuProps, setUserMenuProps] = useState({display: 'none', top: -1, left: -1, group: false, chatid: -1})
+    const prevChatId = React.useRef(-1)
 
-    const[friendModalShow, setFriendModalShow] = useState(false);
-    const[relationsTab, setRelationsTab] = useState(false);
+    const[friendModalShow, setFriendModalShow] = useState(false)
+    const[groupInviteModalShow, setGroupInviteModalShow] = useState(false)
+    const[createGroupModalShow, setCreateGroupModalShow] = useState(false)
+    const[relationsTab, setRelationsTab] = useState(false)
 
     const handleContextMenu = (event, chatId, isGroup) => {
         event.preventDefault()
@@ -189,15 +222,25 @@ function Home(props) {
 
     const handleHistory = (id, isGroup) => {
         if(chat.chatid !== id) {
+            newDividerIdx.current = -1
+            prevUnreadScore.current = -1
+            
             getChat(props.socket, id, isGroup)
             if(!isGroup && notifications.senderids.includes(id)) {
+                let idx = notifications.senderids.indexOf(id)
+                prevUnreadScore.current = notifications.senderscores[idx]
                 markAsRead(props.url, id, false, notifications, setNotifications)
             } else if(isGroup && notifications.groupids.includes(id)) {
+                let idx = notifications.groupids.indexOf(id)
+                prevUnreadScore.current = notifications.groupscores[idx]
                 markAsRead(props.url, id, true, notifications, setNotifications)
             }
         }
     }
     const handleMsg = () => {
+        newDividerIdx.current = -1
+        prevUnreadScore.current = -1
+
         if(!chat.group)
             sendDM(props.socket, chat.chatid)
         else
@@ -213,7 +256,7 @@ function Home(props) {
     props.socket.chat = chat
     props.socket.notifications = notifications
     
-    const calledOnce = React.useRef(false);
+    const calledOnce = React.useRef(false)
     useEffect(()=>{
         if(calledOnce.current){
             return
@@ -223,7 +266,8 @@ function Home(props) {
         props.socket.setState = setSocState
         props.socket.setNotifications = setNotifications
         props.socket.refreshed = calledOnce
-        props.socket.getFriends = () => {getFriends(props.url, setFriends)}
+        props.socket.getFriends = () => getFriends(props.url, setFriends)
+        props.socket.getGroups = () => getGroups(props.url, setGroups)
         props.socket.connect()
 
         getUserInfo(props.url, props.socket, setState, setInfo)
@@ -235,21 +279,25 @@ function Home(props) {
                 return
             }
 
-            setUserMenuProps({display: 'none', top: -1, left: -1, userid: -1})
+            setUserMenuProps({display: 'none', top: -1, left: -1, group: false, chatid: -1})
         })
 
         calledOnce.current = true
     }, [props.socket, props.url, chat, userMenuProps])
 
     useEffect(()=>{
-        var history = document.getElementById("history");
+        if(newDividerIdx.current === -1 && prevUnreadScore.current !== -1) {
+            newDividerIdx.current = chat.history.length - prevUnreadScore.current
+        }
+
+        var history = document.getElementById("history")
         if(history !== null) {
-            history.scrollTop = history.scrollHeight;
+            history.scrollTop = history.scrollHeight
         }
     },[chat])
     
     if(loggedOut){
-        return (<Navigate to='/'/>);
+        return (<Navigate to='/'/>)
     }
 
     if(state === 'LOADING' || socketState === 'CONNECTING') {
@@ -266,10 +314,10 @@ function Home(props) {
                         </p>
                     </center>
                     :
-                    ""
+                    null
                 }
             </div>
-        );
+        )
     }
 
     console.log("Refreshed")
@@ -278,7 +326,9 @@ function Home(props) {
             <UserMenu
             url={props.url}
             info={userMenuProps}
+            setPrevChatId={() => setPrevChatId(prevChatId, userMenuProps.chatid)}
             refreshFriends={() => {getFriends(props.url, setFriends)}}
+            showGroupInvite={() => setGroupInviteModalShow(true)}
             />
             <div className="home-container">
                 <Row className="width-fix">
@@ -295,10 +345,6 @@ function Home(props) {
                         </div>
                     </Col>
                     <Col>
-                        <Button type="button" className="btn-main" style={{float: "right"}} 
-                            onClick={() => handleHistory(1, true)}>
-                            Temp
-                        </Button>
                         <Button type="button" className="btn-main" style={{float: "right"}} 
                         onClick={() => logout(setLoggedOut, props.url, props.socket)}>
                             Logout
@@ -320,7 +366,7 @@ function Home(props) {
                                                 chat.group ?
                                                 "@" + groups.find(group => group.id === chat.chatid).name
                                                 :
-                                                ""
+                                                null
                                             }
                                         </h1>
                                         <h1 style={{color: "rgb(51, 153, 255)"}}>
@@ -331,36 +377,54 @@ function Home(props) {
                                     </div>
                                 </div>
                                 :
-                                ""
+                                null
                             }
                             <div id="history" className="history-container scrollable">
                                 {
                                     chat.history.map((el, key) => (
-                                        <p key={key} className="chat-msg">
+                                        <div key={key}>
                                             {
-                                                !chat.group ?
-                                                <b>
-                                                    {
-                                                        el.senderid === userInfo.id ?
-                                                        userInfo.username
-                                                        :
-                                                        friends.find(friend => friend.id === el.senderid).username
-                                                    }
-                                                </b>
+                                                key === newDividerIdx.current ?
+                                                <div className="messages-divider">
+                                                    <p><span>NEW</span></p>
+                                                </div>
                                                 :
-                                                <b>
-                                                    {
-                                                        el.senderid === userInfo.id ?
-                                                        userInfo.username
-                                                        :
-                                                        groupMembers.find(member => member.id === el.senderid).username
-                                                    }
-                                                </b>
+                                                null
                                             }
-                                            <br/>
-                                            {el.message}
-                                            <br/>
-                                        </p>
+                                            <p className={
+                                                el.issystem ?
+                                                "chat-msg info-message"
+                                                :
+                                                "chat-msg"}>
+                                                {
+                                                    el.issystem ?
+                                                    null
+                                                    :
+                                                    !chat.group ?
+                                                    <b>
+                                                        {
+                                                            el.senderid === userInfo.id ?
+                                                            userInfo.username
+                                                            :
+                                                            friends.find(friend => friend.id === el.senderid).username
+                                                        }
+                                                        <br/>
+                                                    </b>
+                                                    :
+                                                    <b>
+                                                        {
+                                                            el.senderid === userInfo.id ?
+                                                            userInfo.username
+                                                            :
+                                                            groupMembers.find(member => member.id === el.senderid).username
+                                                        }
+                                                        <br/>
+                                                    </b>
+                                                }
+                                                {el.message}
+                                                <br/>
+                                            </p>
+                                        </div>
                                     ))
                                 }
                             </div>
@@ -396,6 +460,16 @@ function Home(props) {
                                 onClick={() => setFriendModalShow(true)}>
                                     <FontAwesomeIcon icon={faUserPlus} size={'xs'} />
                                 </Button>
+                                {
+                                    relationsTab ?
+                                    <Button className="btn-small"
+                                    onClick={() => setCreateGroupModalShow(true)}>
+                                        <FontAwesomeIcon icon={faPlus} size={'xs'} />
+                                    </Button>
+                                    :
+                                    null
+                                }
+
                                 <div className="tab-list scrollable">
                                 {
                                     !relationsTab ?
@@ -432,7 +506,7 @@ function Home(props) {
                                                     {notifications.senderscores[notifications.senderids.indexOf(el.id)]}
                                                 </div>
                                                 :
-                                                ""
+                                                null
                                             }
                                         </button>
                                     ))
@@ -470,7 +544,7 @@ function Home(props) {
                                                     {notifications.groupscores[notifications.groupids.indexOf(el.id)]}
                                                 </div>
                                                 :
-                                                ""
+                                                null
                                             }
                                         </button>
                                     ))
@@ -478,28 +552,61 @@ function Home(props) {
                                 </div>
                             </div>
                             <div className="relations-tabs">
-                                <button className='friends-tab' disabled={!relationsTab}
+                                <button className={
+                                    notifications.senderids.length !== 0 && relationsTab ?
+                                    "friends-tab glowing-btn"
+                                    :
+                                    "friends-tab"
+                                } disabled={!relationsTab}
                                 onClick={()=>switchTabs(relationsTab, setRelationsTab, false)}>Friends</button>
                                 
-                                <button className='groups-tab' disabled={relationsTab}
+                                <button className={
+                                    notifications.groupids.length !== 0 && !relationsTab ?
+                                    "groups-tab glowing-btn"
+                                    :
+                                    "groups-tab"
+                                } disabled={relationsTab}
                                 onClick={()=>switchTabs(relationsTab, setRelationsTab, true)}>Groups</button>
                             </div>
                         </div>
                     </Col>
                 </Row>
+                {
+                    friendModalShow ?
+                    <AddFriendModal 
+                    hide={() => setFriendModalShow(false)} 
+                    url={props.url}
+                    getFriends={()=>{getFriends(props.url, setFriends)}}
+                    removeNoti={()=>{
+                        var newNotifications = Object.assign({}, notifications)
+                        newNotifications.friendreq = false
+                        setNotifications(newNotifications)
+                    }}/>
+                    :
+                    null
+                }
 
-                <AddFriendModal 
-                show={friendModalShow} 
-                onHide={() => setFriendModalShow(false)} 
-                url={props.url}
-                getFriends={()=>{getFriends(props.url, setFriends)}}
-                removeNoti={()=>{
-                    var newNotifications = Object.assign({}, notifications)
-                    newNotifications.friendreq = false
-                    setNotifications(newNotifications)
-                }}/>
+                {
+                    groupInviteModalShow ?
+                    <GroupInviteModal
+                    hide={() => setGroupInviteModalShow(false)}
+                    url={props.url}
+                    groups={groups}
+                    chatid={prevChatId.current}/>
+                    :
+                    null
+                }
+                {
+                    createGroupModalShow ?
+                    <CreateGroupModal
+                    hide={() => setCreateGroupModalShow(false)}
+                    url={props.url}/>
+                    :
+                    null
+                }
+
             </div>
         </div>
-    );
+    )
 }
-export default Home;
+export default Home

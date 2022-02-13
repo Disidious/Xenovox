@@ -5,6 +5,7 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"reflect"
 	"time"
 
 	dbhandler "github.com/Disidious/Xenovox/DbHandler"
@@ -92,7 +93,7 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 		case "DM":
 			bodyMap, ok := (request.Body).(map[string]interface{})
 			if !ok {
-				log.Println("Failed : couldn't get id from json")
+				log.Println("Failed : couldn't get body from json")
 				continue
 			}
 
@@ -113,7 +114,7 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 		case "GM":
 			bodyMap, ok := (request.Body).(map[string]interface{})
 			if !ok {
-				log.Println("Failed : couldn't get id from json")
+				log.Println("Failed : couldn't get body from json")
 				continue
 			}
 
@@ -127,9 +128,7 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			messageObj.SenderId = id
-			// TODO: Send notifications to all members
-
-			if !sendGM(&messageObj, &mt) {
+			if !sendGM(&messageObj, true, &mt) {
 				continue
 			}
 			log.Printf("recv: %s", message)
@@ -208,12 +207,16 @@ func main() {
 	mainRouter.HandleFunc("/checkauth", checkAuth).Methods("GET")
 	mainRouter.HandleFunc("/logout", logout).Methods("POST")
 	mainRouter.HandleFunc("/friends", getFriends).Methods("GET")
+	mainRouter.HandleFunc("/groups", getGroups).Methods("GET")
 	mainRouter.HandleFunc("/connections", getConnections).Methods("GET")
 	mainRouter.HandleFunc("/info", getUserInfo).Methods("GET")
 	mainRouter.HandleFunc("/socket", socketIncomingHandler)
 	mainRouter.HandleFunc("/sendRelation", sendRelation).Methods("POST")
 	mainRouter.HandleFunc("/friendRequests", getFriendRequests).Methods("GET")
 	mainRouter.HandleFunc("/read", updateDMsToRead).Methods("POST")
+	//mainRouter.HandleFunc("/createGroup", createGroup).Methods("POST")
+	//mainRouter.HandleFunc("/leave", leaveGroup).Methods("POST")
+	mainRouter.HandleFunc("/addToGroup", addToGroup).Methods("POST")
 
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }
@@ -289,6 +292,13 @@ func getId(w http.ResponseWriter, r *http.Request) (id int, ok bool) {
 	return
 }
 
+func failureRes(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusBadRequest)
+	jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
+	w.Write(jsonRes)
+	return
+}
+
 func login(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -355,9 +365,7 @@ func register(w http.ResponseWriter, r *http.Request) {
 	var newUser structs.User
 	err := json.NewDecoder(r.Body).Decode(&newUser)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
-		w.Write(jsonRes)
+		failureRes(w, r)
 		return
 	}
 
@@ -379,9 +387,7 @@ func sendRelation(w http.ResponseWriter, r *http.Request) {
 	var newRelation structs.Relation
 	err := json.NewDecoder(r.Body).Decode(&newRelation)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
-		w.Write(jsonRes)
+		failureRes(w, r)
 		return
 	}
 
@@ -393,25 +399,22 @@ func sendRelation(w http.ResponseWriter, r *http.Request) {
 	newRelation.User1Id = id
 
 	if id == newRelation.User2Id {
-		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
-		w.Write(jsonRes)
+		failureRes(w, r)
 		return
 	}
 
 	ret := dbhandler.UpsertRelation(&newRelation)
 	if ret == "FAILED" {
-		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
-		w.Write(jsonRes)
+		failureRes(w, r)
 		return
 	}
 
 	if receiverSocket, ok := sockets[newRelation.User2Id]; ok {
-		// Send refresh friends request and a notification to receiver client
-		sendRefresh(&newRelation.User2Id, receiverSocket, &newRelation.Relation)
+		// Send notification or refresh friend to the receiver client based on the relation
 		if newRelation.Relation == 0 {
 			sendFRNotification(&id, receiverSocket)
+		} else {
+			sendRefresh(receiverSocket, false)
 		}
 	}
 	jsonRes, _ := json.Marshal(apiResponse{Message: ret})
@@ -434,6 +437,25 @@ func getUserInfo(w http.ResponseWriter, r *http.Request) {
 	w.Write(jsonRes)
 }
 
+func getGroups(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	id, ok := getId(w, r)
+	if !ok {
+		return
+	}
+
+	rows, status := dbhandler.GetGroups(&id)
+	if !status {
+		failureRes(w, r)
+		return
+	}
+
+	jsonString := structs.JsonifyRows(rows)
+
+	w.Write([]byte(jsonString))
+}
+
 func getFriends(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -444,9 +466,7 @@ func getFriends(w http.ResponseWriter, r *http.Request) {
 
 	rows, status := dbhandler.GetFriends(&id)
 	if !status {
-		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
-		w.Write(jsonRes)
+		failureRes(w, r)
 		return
 	}
 
@@ -465,9 +485,7 @@ func getConnections(w http.ResponseWriter, r *http.Request) {
 
 	frows, grows, status := dbhandler.GetAllConnections(&id)
 	if !status {
-		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
-		w.Write(jsonRes)
+		failureRes(w, r)
 		return
 	}
 
@@ -489,9 +507,7 @@ func getFriendRequests(w http.ResponseWriter, r *http.Request) {
 
 	rows, status := dbhandler.GetFriendRequests(&id)
 	if !status {
-		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
-		w.Write(jsonRes)
+		failureRes(w, r)
 		return
 	}
 
@@ -511,14 +527,11 @@ func updateDMsToRead(w http.ResponseWriter, r *http.Request) {
 	var body map[string]interface{}
 	err := json.NewDecoder(r.Body).Decode(&body)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
-		w.Write(jsonRes)
+		failureRes(w, r)
 		return
 	}
 
 	chatId := int(body["id"].(float64))
-	log.Println("came here")
 	if !body["group"].(bool) {
 		ok = dbhandler.UpdateDMsToRead(&chatId, &id)
 	} else {
@@ -526,10 +539,91 @@ func updateDMsToRead(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !ok {
-		w.WriteHeader(http.StatusBadRequest)
-		jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
-		w.Write(jsonRes)
+		failureRes(w, r)
 		return
+	}
+
+	jsonRes, _ := json.Marshal(apiResponse{Message: "SUCCESS"})
+	w.Write(jsonRes)
+}
+
+// func createGroup(w http.ResponseWriter, r *http.Request) {
+// 	w.Header().Set("Content-Type", "application/json")
+
+// 	id, ok := getId(w, r)
+// 	if !ok {
+// 		return
+// 	}
+
+// }
+
+func addToGroup(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	id, ok := getId(w, r)
+	if !ok {
+		return
+	}
+
+	var body map[string]interface{}
+	err := json.NewDecoder(r.Body).Decode(&body)
+	if err != nil {
+		failureRes(w, r)
+		return
+	}
+
+	friendIds := body["friendids"].([]interface{})
+	groupId := int(body["groupid"].(float64))
+
+	friendIdsCasted := make([]int, 0)
+	for _, friendId := range friendIds {
+		friendIdsCasted = append(friendIdsCasted, int(friendId.(float64)))
+	}
+
+	res := dbhandler.AddToGroup(&id, &friendIdsCasted, &groupId)
+	if res != "SUCCESS" {
+		failureRes(w, r)
+		return
+	}
+
+	usernames := make(map[int]string, 0)
+	var senderUsername string
+	if rows, ok := dbhandler.GetUsernames(append(friendIdsCasted, id)); ok {
+		users, ok := structs.StructifyRows(rows, reflect.TypeOf(structs.User{}))
+		if !ok {
+			failureRes(w, r)
+			return
+		}
+		for _, user := range users {
+			userCasted := user.(*structs.User)
+			if userCasted.Id == id {
+				senderUsername = userCasted.Username
+				continue
+			}
+
+			usernames[userCasted.Id] = userCasted.Username
+		}
+	}
+
+	// Send refresh groups to added user and send system message of adding a new member to a group
+	sendToSender := true
+	for _, friendId := range friendIdsCasted {
+		if receiverSocket, ok := sockets[friendId]; ok {
+			sendRefresh(receiverSocket, true)
+		}
+
+		sysMsg := senderUsername + " added " + usernames[friendId]
+		mt := 1
+		if !sendGM(&structs.GroupMessage{
+			Message:  sysMsg,
+			SenderId: id,
+			GroupId:  groupId,
+			IsSystem: true,
+		}, sendToSender, &mt) {
+			failureRes(w, r)
+			return
+		}
+		sendToSender = false
 	}
 
 	jsonRes, _ := json.Marshal(apiResponse{Message: "SUCCESS"})

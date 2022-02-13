@@ -13,6 +13,7 @@ class Xenosocket{
 
         this.refreshed = null
 
+        this.getGroups = () => {}
         this.getFriends = () => {}
 
         this.setState = null
@@ -104,6 +105,10 @@ class Xenosocket{
 
                 case "REFRESH_FRIENDS":
                     this.getFriends();
+                    break
+                
+                case "REFRESH_GROUPS":
+                    this.getGroups();
                     break
 
                 default:

@@ -116,7 +116,7 @@ func sendDM(message *structs.Message, mt *int) bool {
 	return true
 }
 
-func sendGM(message *structs.GroupMessage, mt *int) bool {
+func sendGM(message *structs.GroupMessage, sendToSender bool, mt *int) bool {
 	// Insert message to database
 	ret := dbhandler.InsertGroupMessage(message)
 	if ret == "FAILED" {
@@ -137,7 +137,7 @@ func sendGM(message *structs.GroupMessage, mt *int) bool {
 			var membersToNotify []structs.User
 			for _, member := range members {
 				castedMember := member.(*structs.User)
-				if castedMember.Id == message.SenderId {
+				if castedMember.Id == message.SenderId && !sendToSender {
 					continue
 				}
 
@@ -154,12 +154,6 @@ func sendGM(message *structs.GroupMessage, mt *int) bool {
 		}
 	}
 
-	// Send message to sender
-	err := sockets[message.SenderId].WriteMessage(*mt, jsonRes)
-	if err != nil {
-		log.Println("err:", err)
-	}
-
 	return true
 }
 
@@ -170,11 +164,7 @@ func sendAllNotifications(id *int, c *websocket.Conn) {
 	var notifications structs.ClientNotifications
 	json.Unmarshal([]byte(jsonString), &notifications)
 
-	exists, status := dbhandler.FriendReqExists(id)
-	if !status {
-		log.Println("Failed : Couldn't send all notifications")
-		return
-	}
+	exists := dbhandler.FriendReqExists(id)
 
 	notifications.FriendReq = exists
 
@@ -206,13 +196,14 @@ func sendFRNotification(id *int, c *websocket.Conn) {
 	}
 }
 
-func sendRefresh(id *int, c *websocket.Conn, relation *int) {
-	if *relation == 0 {
-		return
+func sendRefresh(c *websocket.Conn, groups bool) {
+	resType := "REFRESH_FRIENDS"
+	if groups {
+		resType = "REFRESH_GROUPS"
 	}
 
 	response := structs.ClientSocketMessage{
-		Type: "REFRESH_FRIENDS",
+		Type: resType,
 		Body: nil,
 	}
 	jsonRes, _ := json.Marshal(response)

@@ -2,6 +2,138 @@ import React from 'react';
 import {Modal, Button} from 'react-bootstrap';
 import Spinner from "./../components/loadingspinner";
 
+class CreateGroupModal extends React.Component {
+    constructor(props) {
+        super(props)
+        this.state = {value: "STANDBY"}
+    }
+
+    createGroup() {
+        let groupName = document.getElementById("groupName")
+        if(groupName.value === '')
+            return
+    }
+
+    render() {
+        return (
+            <Modal
+            show={true}
+            size="md"
+            aria-labelledby="contained-modal-title-vcenter"
+            centered>
+                <Modal.Header>
+                    <Modal.Title id="contained-modal-title-vcenter">
+                        Groups
+                    </Modal.Title>
+                </Modal.Header>
+                <Modal.Body>
+                    <p className="field-title"><b>Group Name</b></p>
+                    <input type="number" id="groupName" className='textbox-main' style={{width: "50%"}}/>
+                    {
+                        this.state.value === "UNEXPECTED_FAILURE" ?
+                        <p className="error-message">
+                            Couldn't create group
+                        </p>
+                        :
+                        this.state.value === "SUCCESS" ?
+                        <p className="success-message">
+                            Group created
+                        </p>
+                        :
+                        <p className="success-message">&nbsp;</p>
+                    }
+                </Modal.Body>
+                <Modal.Footer>
+                    <Button className="btn-main btn-confirm" onClick={() => this.createGroup()}>Create</Button>
+                    <Button className="btn-main btn-cancel" onClick={() => {
+                        this.props.hide()
+                        }}>Close</Button>
+                </Modal.Footer>
+            </Modal>
+        )
+    }
+}
+
+class GroupInviteModal extends React.Component {
+    constructor(props) {
+        super(props)
+        this.state = {value: "STANDBY", groupname: ""}
+    }
+
+    addToGroup(groupId, groupName) {
+        fetch(this.props.url + '/addToGroup', {
+            credentials: 'include',
+            method: 'POST',
+            body: JSON.stringify({
+                friendids: [parseInt(this.props.chatid)],
+                groupid: groupId
+            })
+        }).then( response => response.json() )
+        .then(data => {
+            this.setState({value: data.message, groupname: groupName})
+        }).catch((error) => {
+            console.log(error)
+        })
+    }
+
+    render() {
+        return (
+            <Modal
+            show={true}
+            size="lg"
+            aria-labelledby="contained-modal-title-vcenter"
+            centered>
+                <Modal.Header>
+                    <Modal.Title id="contained-modal-title-vcenter">
+                        Groups
+                    </Modal.Title>
+                </Modal.Header>
+                <Modal.Body>
+                    <br/>
+                    <table style={{width: "100%"}}>
+                        <tbody className="table">
+                            <tr>
+                                <th>Name</th>
+                            </tr>
+                            {
+                                this.props.groups.map((el, key) => (
+                                    <tr key={key}>
+                                        <td>
+                                            {el.name}
+                                        </td>
+                                        <td style={{float: 'right'}}>
+                                            <Button className="btn-main btn-confirm" style={{marginRight: '0.5em'}}
+                                            onClick={()=>{ this.addToGroup(el.id, el.name) }}>Add</Button>
+                                        </td>
+                                    </tr>
+                                ))
+                            }
+                        </tbody>
+                    </table>
+                    {
+                        this.state.value === "UNEXPECTED_FAILURE" ?
+                        <p className="error-message">
+                            Couldn't add your friend to {this.state.groupname}
+                        </p>
+                        :
+                        this.state.value === "SUCCESS" ?
+                        <p className="success-message">
+                            Friend added to {this.state.groupname}
+                        </p>
+                        :
+                        <p className="success-message">&nbsp;</p>
+                    }
+                </Modal.Body>
+                <Modal.Footer>
+                    <Button className="btn-main btn-cancel" onClick={() => {
+                        this.props.hide()
+                        }}>Close</Button>
+                </Modal.Footer>
+            </Modal>
+        );
+    }
+}
+
 class AddFriendModal extends React.Component {
     constructor(props) {
         super(props);
@@ -10,12 +142,13 @@ class AddFriendModal extends React.Component {
             requestsState: "STANDBY",
             requests: []
         };
-
-        this.refreshRequests = true;
     }
 
     addFriend() {
         var friendIdBox = document.getElementById('addUserId')
+        if(friendIdBox.value === '')
+            return
+
         fetch(this.props.url + '/sendRelation', {
             credentials: 'include',
             method: 'POST',
@@ -23,16 +156,14 @@ class AddFriendModal extends React.Component {
                 user2Id: parseInt(friendIdBox.value),
                 relation: 0
             })
-        }).then(response => response.text())
+        }).then(response => response.json())
         .then(data => {
-            var message = JSON.parse(data).message
-            this.setState({frState: message})
+            this.setState({frState: data.message})
         })
     }
 
     getFriendRequests() {
         this.setState({frState: this.state.frState, requestsState: "LOADING"})
-        this.refreshRequests = false;
         fetch(this.props.url + '/friendRequests', {
             credentials: 'include',
             method: 'GET'
@@ -71,15 +202,14 @@ class AddFriendModal extends React.Component {
         })
     }
 
-    componentDidUpdate() {
-        if(this.props.show && this.refreshRequests)
-            this.getFriendRequests()
+    componentDidMount() {
+        this.getFriendRequests()
     }
 
     render() {
         return (
             <Modal
-            show={this.props.show}
+            show={true}
             size="lg"
             aria-labelledby="contained-modal-title-vcenter"
             centered>
@@ -121,6 +251,11 @@ class AddFriendModal extends React.Component {
                                 <th>Username#Id</th>
                             </tr>
                             {
+                                this.state.requestsState === 'LOADING' ?
+                                <center>
+                                    <Spinner/>
+                                </center>
+                                :
                                 this.state.requests.map((el, key) => (
                                     <tr key={key}>
                                         <td>
@@ -138,20 +273,10 @@ class AddFriendModal extends React.Component {
                             }
                         </tbody>
                     </table>
-                    {
-                        this.state.requestsState === 'LOADING' ?
-                        <center>
-                            <Spinner/>
-                        </center>
-                        :
-                        <div/>
-                    }
                 </Modal.Body>
                 <Modal.Footer>
                     <Button className="btn-main btn-cancel" onClick={() => {
-                        this.props.onHide()
-                        this.refreshRequests = true;
-                        this.setState({frState: "STANDBY", requestsState: "STANDBY"})
+                        this.props.hide()
                         }}>Close</Button>
                 </Modal.Footer>
             </Modal>
@@ -159,4 +284,4 @@ class AddFriendModal extends React.Component {
     }
 }
 
-export default AddFriendModal;
+export {AddFriendModal, GroupInviteModal, CreateGroupModal};

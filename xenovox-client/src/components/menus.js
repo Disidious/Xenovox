@@ -1,26 +1,26 @@
 import React from 'react';
 
 class UserMenu extends React.Component {
-    blockUser() {
-        fetch(this.props.url + '/sendRelation', {
-            credentials: 'include',
-            method: 'POST',
-            body: JSON.stringify({
-                user2Id: parseInt(this.props.info.chatid),
-                relation: 2
-            })
-        }).then(()=>{
-            this.props.refreshFriends()
-        })
-    }
-
     unfriendUser() {
         fetch(this.props.url + '/sendRelation', {
             credentials: 'include',
             method: 'POST',
             body: JSON.stringify({
-                user2Id: parseInt(this.props.info.chatid),
+                user2id: parseInt(this.props.info.chatid),
                 relation: -1
+            })
+        }).then(()=>{
+            this.props.refreshFriends()
+        })
+    }
+    
+    blockUser() {
+        fetch(this.props.url + '/sendRelation', {
+            credentials: 'include',
+            method: 'POST',
+            body: JSON.stringify({
+                user2id: parseInt(this.props.info.chatid),
+                relation: 2
             })
         }).then(()=>{
             this.props.refreshFriends()
@@ -56,7 +56,9 @@ class UserMenu extends React.Component {
                 {
                     !this.props.info.group ?
                     <ul>
-                        <li><button>Invite to Group</button></li>
+                        <li><button onClick={()=>{
+                            this.props.setPrevChatId()
+                            this.props.showGroupInvite()}}>Add to Group</button></li>
                         <li><button onClick={()=>this.unfriendUser()}>Unfriend</button></li>
                         <li><button onClick={()=>this.blockUser()}>Block</button></li>
                     </ul>

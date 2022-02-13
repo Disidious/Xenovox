@@ -10,6 +10,7 @@ import (
 
 	structs "github.com/Disidious/Xenovox/Structs"
 	"github.com/go-redis/redis"
+	"github.com/lib/pq"
 	_ "github.com/lib/pq"
 )
 
@@ -56,8 +57,8 @@ func InsertGroupMessage(message *structs.GroupMessage) string {
 		return "FAILED"
 	}
 
-	addQ := `INSERT INTO group_messages (senderid, groupid, message) VALUES($1, $2, $3)`
-	_, err := db.Exec(addQ, message.SenderId, message.GroupId, message.Message)
+	addQ := `INSERT INTO group_messages (senderid, groupid, message, issystem) VALUES($1, $2, $3, $4)`
+	_, err := db.Exec(addQ, message.SenderId, message.GroupId, message.Message, message.IsSystem)
 	if err != nil {
 		log.Println(err)
 		return "FAILED"
@@ -305,6 +306,17 @@ func GetUserInfo(id *int) (row *sql.Row) {
 	return
 }
 
+func GetUsernames(ids []int) (rows *sql.Rows, status bool) {
+	rows, err := db.Query(`SELECT id, username FROM users WHERE id = ANY($1)`, pq.Array(ids))
+	if err != nil {
+		log.Fatal(err)
+		status = false
+	}
+
+	status = true
+	return
+}
+
 func GetFriends(id *int) (rows *sql.Rows, status bool) {
 	rows, err := db.Query(`SELECT users.id, users.username, users.picture 
 	FROM users 
@@ -386,7 +398,7 @@ func GetGroupChatAndMembers(id *int, groupId *int) (hrows *sql.Rows, mrows *sql.
 		return
 	}
 
-	hrows, err := db.Query(`SELECT message, senderid FROM group_messages WHERE groupid = $1`, groupId)
+	hrows, err := db.Query(`SELECT message, senderid, issystem FROM group_messages WHERE groupid = $1`, groupId)
 	if err != nil {
 		log.Fatal(err)
 		status = false
@@ -511,38 +523,60 @@ func GetUnreadDMs(id *int) (rows *sql.Rows, status bool) {
 	return
 }
 
-func FriendReqExists(id *int) (result bool, status bool) {
-	row, err := db.Query(`SELECT COUNT(*) as count FROM relations WHERE relation = 0 AND user2id = $1 LIMIT 1`, id)
-	if err != nil {
-		log.Fatal(err)
-		status = false
-	} else {
-		status = true
-		var count int
-		row.Next()
-		row.Scan(&count)
+func FriendReqExists(id *int) (result bool) {
+	row := db.QueryRow(`SELECT COUNT(*) as count FROM relations WHERE relation = 0 AND user2id = $1 LIMIT 1`, id)
 
-		if count == 0 {
-			result = false
-		} else {
-			result = true
-		}
+	var count int
+	row.Scan(&count)
+
+	if count == 0 {
+		result = false
+	} else {
+		result = true
 	}
 
 	return
 }
 
-func JoinGroup(id *int, groupid *int) string {
-	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2`
-	row := db.QueryRow(checkQ, id, groupid)
+func AddToGroup(id *int, friendIds *[]int, groupId *int) string {
+	// Checks if the user to add is already a member
+	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = ANY($1) AND groupid = $2`
+	row := db.QueryRow(checkQ, pq.Array(*friendIds), groupId)
 	var count int
 	row.Scan(&count)
 	if count != 0 {
 		return "EXISTS"
 	}
 
-	addQ := `INSERT INTO group_members (userid, groupid) VALUES($1, $2)`
-	_, err := db.Exec(addQ, id, groupid)
+	// Checks if the user that is adding is a member
+	checkQ3 := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2`
+	row3 := db.QueryRow(checkQ3, id, groupId)
+	var count3 int
+	row3.Scan(&count3)
+	if count3 == 0 {
+		return "NOT_MEMBER"
+	}
+
+	// Checks if both users are friends
+	checkQ2 := `SELECT COUNT(*) FROM relations 
+	WHERE ((user1id = $1 AND user2id = ANY($2)) OR (user1id = ANY($2) AND user2id = $1)) AND relation = 1`
+	row2 := db.QueryRow(checkQ2, id, pq.Array(*friendIds))
+	var count2 int
+	row2.Scan(&count2)
+	if count2 == 0 {
+		return "NOT_FRIENDS"
+	}
+
+	addQ := `INSERT INTO group_members (userid, groupid) VALUES`
+	groupIdStr := strconv.Itoa(*groupId)
+	for _, friendId := range *friendIds {
+		addQ += "(" + strconv.Itoa(friendId) + "," + groupIdStr + "),"
+	}
+	if addQ[len(addQ)-1] == ',' {
+		addQ = addQ[:len(addQ)-1]
+	}
+
+	_, err := db.Exec(addQ)
 	if err != nil {
 		log.Println(err)
 		return "FAILED"

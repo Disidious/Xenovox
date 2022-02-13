@@ -1,44 +1,3 @@
-.App {
-  
-}
-
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
-}
-
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
-}
-
-.App-link {
-  color: #61dafb;
-}
-
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/*===================================================================*/
-
 body {
   background-color: #0A1929!important;
 }
@@ -96,7 +55,9 @@ h3 {
 
 .btn-small {
   float:right;
+  width: 50px;
   margin-top: 0.5rem;
+  margin-left: 0.5rem;
   padding: 1px 5px 1px 5px!important;
   background-color: rgb(0, 30, 60)!important;
   color: rgb(243, 246, 249)!important;
@@ -140,6 +101,8 @@ a {
 .info-message {
   color: rgb(51, 153, 255)!important;
   font-weight: bold;
+  margin: 0;
+  text-align: center;
 }
 
 .neonText {
@@ -161,7 +124,7 @@ a {
 }
 
 .history-container {
-  height: 80vh;
+  height: 75vh;
 }
 
 .relations-container {
@@ -189,6 +152,8 @@ a {
   width: 50%;
   text-align: left;
   border: none;
+  border-bottom-style: solid;
+  border-bottom-color: rgb(0, 17, 34);
   padding: 0.5em;
   transition: 0.2s;
   text-align: center;
@@ -199,6 +164,7 @@ a {
 
 .relations-tabs button:hover {
   background-color: rgb(51, 153, 255);
+  border-bottom-color: rgb(51, 153, 255);
 }
 
 .relations-tabs button:disabled {
@@ -345,6 +311,21 @@ button:focus {
 
 .field-title {
   margin-bottom: 0.5em!important;
+}
+
+.messages-divider p{
+  color: rgb(243, 246, 249);
+  text-align: center;
+  background-color: rgb(51, 153, 255); 
+  line-height: 0.1em;
+  margin: 1em; 
+}
+
+.messages-divider p span {
+  padding: 0 10px;
+  border-radius: 50px;
+  font-weight: bold;
+  background-color: rgb(51, 153, 255);
 }
 
 /* Chrome, Safari, Edge, Opera */
