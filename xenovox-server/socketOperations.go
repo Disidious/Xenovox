@@ -116,21 +116,39 @@ func sendDM(message *structs.Message, mt *int) bool {
 	return true
 }
 
-func sendGM(message *structs.GroupMessage, sendToSender bool, mt *int) bool {
+func sendGM(message *structs.GroupMessage, sendToSender bool, sendMembers bool, mt *int) bool {
 	// Insert message to database
 	ret := dbhandler.InsertGroupMessage(message)
 	if ret == "FAILED" {
 		log.Println(ret)
 		return false
 	}
+
+	body := make(map[string]interface{})
+	body["message"] = message.Convert()
+	if sendMembers {
+		includingLeftMembers := true
+		mrows, ok := dbhandler.GetGroupMembers(&message.GroupId, &includingLeftMembers)
+		if !ok {
+			return false
+		}
+
+		members, ok := structs.StructifyRows(mrows, reflect.TypeOf(structs.ClientUser{}))
+		if !ok {
+			return false
+		}
+		body["members"] = members
+	}
+
 	response := structs.ClientSocketMessage{
 		Type: "GM",
-		Body: message.Convert(),
+		Body: body,
 	}
 	jsonRes, _ := json.Marshal(response)
 
 	// Store notifications for all group members that are offline or not on chat
-	mrows, ok := dbhandler.GetGroupMembers(&message.GroupId)
+	includingLeftMembers := false
+	mrows, ok := dbhandler.GetGroupMembers(&message.GroupId, &includingLeftMembers)
 	if ok {
 		members, ok := structs.StructifyRows(mrows, reflect.TypeOf(structs.User{}))
 		if ok {

@@ -65,7 +65,7 @@ class GroupInviteModal extends React.Component {
             credentials: 'include',
             method: 'POST',
             body: JSON.stringify({
-                friendids: [parseInt(this.props.chatid)],
+                friendids: [parseInt(this.props.info.chatid)],
                 groupid: groupId
             })
         }).then( response => response.json() )
@@ -284,4 +284,36 @@ class AddFriendModal extends React.Component {
     }
 }
 
-export {AddFriendModal, GroupInviteModal, CreateGroupModal};
+class ConfirmationModal extends React.Component {
+    render() {
+        return(
+            <Modal
+            size="lg"
+            show={true}
+            aria-labelledby="contained-modal-title-vcenter"
+            centered>
+                <Modal.Header>
+                    <Modal.Title id="contained-modal-title-vcenter">
+                        {this.props.info.title}
+                    </Modal.Title>
+                </Modal.Header>
+                <Modal.Body>
+                    <p><b>{this.props.info.content}</b></p>
+                </Modal.Body>
+                <Modal.Footer>
+                    <Button className="btn-main btn-confirm-neg" onClick={() => {
+                        this.props.info.action()
+                        this.props.hide()
+                        }}>
+                        {this.props.info.actionName}
+                    </Button>
+                    <Button className="btn-main btn-cancel" onClick={() => {
+                        this.props.hide()
+                        }}>Close</Button>
+                </Modal.Footer>
+            </Modal>
+        )
+    }
+}
+
+export {AddFriendModal, GroupInviteModal, CreateGroupModal, ConfirmationModal};

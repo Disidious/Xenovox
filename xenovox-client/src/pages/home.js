@@ -5,7 +5,7 @@ import { Navigate } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faLocationArrow, faUserPlus, faPlus } from '@fortawesome/free-solid-svg-icons'
 
-import {AddFriendModal, GroupInviteModal, CreateGroupModal} from './../components/modals'
+import {ConfirmationModal, AddFriendModal, GroupInviteModal, CreateGroupModal} from './../components/modals'
 import UserMenu from './../components/menus'
 import Spinner from "./../components/loadingspinner"
 
@@ -185,10 +185,6 @@ function switchTabs(relationsTab, setRelationsTab, isGroup) {
         setRelationsTab(false)
 }
 
-function setPrevChatId(prevChatId, chatId) {
-    prevChatId.current = chatId
-}
-
 function Home(props) {
     const[state, setState] = useState("LOADING")
     const[socketState, setSocState] = useState("CONNECTING")
@@ -204,20 +200,20 @@ function Home(props) {
 
     const[loggedOut, setLoggedOut] = useState(false)
 
-    const[userMenuProps, setUserMenuProps] = useState({display: 'none', top: -1, left: -1, group: false, chatid: -1})
-    const prevChatId = React.useRef(-1)
+    const[userMenuProps, setUserMenuProps] = useState({display: 'none', top: -1, left: -1, group: false, chatid: -1, chatname: ''})
 
+    const[confirmationModalInfo, setConfirmationModalInfo] = useState({show: false, title: '', content: '', actionName: '', action: ()=>{}})
     const[friendModalShow, setFriendModalShow] = useState(false)
-    const[groupInviteModalShow, setGroupInviteModalShow] = useState(false)
+    const[groupInviteModalInfo, setGroupInviteModalInfo] = useState({show: false, chatid: -1})
     const[createGroupModalShow, setCreateGroupModalShow] = useState(false)
     const[relationsTab, setRelationsTab] = useState(false)
 
-    const handleContextMenu = (event, chatId, isGroup) => {
+    const handleContextMenu = (event, chatId, isGroup, chatName) => {
         event.preventDefault()
         let left = event.clientX
         let top = event.clientY
         let display = 'block'
-        setUserMenuProps({display: display, top: top, left: left, group: isGroup, chatid: chatId})
+        setUserMenuProps({display: display, top: top, left: left, group: isGroup, chatid: chatId, chatname: chatName})
     }
 
     const handleHistory = (id, isGroup) => {
@@ -225,7 +221,6 @@ function Home(props) {
             newDividerIdx.current = -1
             prevUnreadScore.current = -1
             
-            getChat(props.socket, id, isGroup)
             if(!isGroup && notifications.senderids.includes(id)) {
                 let idx = notifications.senderids.indexOf(id)
                 prevUnreadScore.current = notifications.senderscores[idx]
@@ -235,8 +230,18 @@ function Home(props) {
                 prevUnreadScore.current = notifications.groupscores[idx]
                 markAsRead(props.url, id, true, notifications, setNotifications)
             }
+            getChat(props.socket, id, isGroup)
         }
     }
+
+    const setUnreadDivider = (len) => {
+        if(newDividerIdx.current === -1 && prevUnreadScore.current !== -1) {
+            newDividerIdx.current = len - prevUnreadScore.current
+        } else {
+            newDividerIdx.current = -1
+        }
+    }
+
     const handleMsg = () => {
         newDividerIdx.current = -1
         prevUnreadScore.current = -1
@@ -268,6 +273,7 @@ function Home(props) {
         props.socket.refreshed = calledOnce
         props.socket.getFriends = () => getFriends(props.url, setFriends)
         props.socket.getGroups = () => getGroups(props.url, setGroups)
+        props.socket.setUnreadDivider = setUnreadDivider
         props.socket.connect()
 
         getUserInfo(props.url, props.socket, setState, setInfo)
@@ -279,17 +285,13 @@ function Home(props) {
                 return
             }
 
-            setUserMenuProps({display: 'none', top: -1, left: -1, group: false, chatid: -1})
+            setUserMenuProps({display: 'none', top: -1, left: -1, group: false, chatid: -1, chatname: ''})
         })
 
         calledOnce.current = true
     }, [props.socket, props.url, chat, userMenuProps])
 
     useEffect(()=>{
-        if(newDividerIdx.current === -1 && prevUnreadScore.current !== -1) {
-            newDividerIdx.current = chat.history.length - prevUnreadScore.current
-        }
-
         var history = document.getElementById("history")
         if(history !== null) {
             history.scrollTop = history.scrollHeight
@@ -326,9 +328,15 @@ function Home(props) {
             <UserMenu
             url={props.url}
             info={userMenuProps}
-            setPrevChatId={() => setPrevChatId(prevChatId, userMenuProps.chatid)}
+            setModalState={setConfirmationModalInfo}
             refreshFriends={() => {getFriends(props.url, setFriends)}}
-            showGroupInvite={() => setGroupInviteModalShow(true)}
+            refreshGroups={() => {getGroups(props.url, setGroups)}}
+            resetChat={(chatId) => {
+                if(chat.chatid === chatId){
+                    setChat({group: false, chatid: -1, history: []})
+                }
+            }}
+            showGroupInviteModal={setGroupInviteModalInfo}
             />
             <div className="home-container">
                 <Row className="width-fix">
@@ -497,7 +505,7 @@ function Home(props) {
                                         } key={key} onClick={()=>{
                                             handleHistory(el.id, false)
                                         }}
-                                        onContextMenu={event=>handleContextMenu(event, el.id, false)}
+                                        onContextMenu={event=>handleContextMenu(event, el.id, false, el.username)}
                                         disabled={el.id === chat.chatid}>
                                             {el.username}
                                             {
@@ -535,7 +543,7 @@ function Home(props) {
                                         } key={key} onClick={()=>{
                                             handleHistory(el.id, true)
                                         }}
-                                        onContextMenu={event=>handleContextMenu(event, el.id, true)}
+                                        onContextMenu={event=>handleContextMenu(event, el.id, true, el.name)}
                                         disabled={el.id === chat.chatid}>
                                             {el.name}
                                             {
@@ -572,6 +580,15 @@ function Home(props) {
                     </Col>
                 </Row>
                 {
+                    confirmationModalInfo.show ?
+                    <ConfirmationModal
+                    info={confirmationModalInfo}
+                    hide={()=>setConfirmationModalInfo({show: false, title: '', content: '', actionName: '', action: ()=>{}})}
+                    />
+                    :
+                    null
+                }
+                {
                     friendModalShow ?
                     <AddFriendModal 
                     hide={() => setFriendModalShow(false)} 
@@ -587,12 +604,12 @@ function Home(props) {
                 }
 
                 {
-                    groupInviteModalShow ?
+                    groupInviteModalInfo.show ?
                     <GroupInviteModal
-                    hide={() => setGroupInviteModalShow(false)}
+                    hide={() => setGroupInviteModalInfo({show: false, chatid: -1})}
                     url={props.url}
-                    groups={groups}
-                    chatid={prevChatId.current}/>
+                    info={groupInviteModalInfo}
+                    groups={groups}/>
                     :
                     null
                 }

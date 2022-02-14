@@ -128,7 +128,7 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			messageObj.SenderId = id
-			if !sendGM(&messageObj, true, &mt) {
+			if !sendGM(&messageObj, true, false, &mt) {
 				continue
 			}
 			log.Printf("recv: %s", message)
@@ -215,7 +215,7 @@ func main() {
 	mainRouter.HandleFunc("/friendRequests", getFriendRequests).Methods("GET")
 	mainRouter.HandleFunc("/read", updateDMsToRead).Methods("POST")
 	//mainRouter.HandleFunc("/createGroup", createGroup).Methods("POST")
-	//mainRouter.HandleFunc("/leave", leaveGroup).Methods("POST")
+	mainRouter.HandleFunc("/leave", leaveGroup).Methods("POST")
 	mainRouter.HandleFunc("/addToGroup", addToGroup).Methods("POST")
 
 	log.Fatal(http.ListenAndServe(*addr, nil))
@@ -296,7 +296,6 @@ func failureRes(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusBadRequest)
 	jsonRes, _ := json.Marshal(apiResponse{Message: "UNEXPECTED_FAILURE"})
 	w.Write(jsonRes)
-	return
 }
 
 func login(w http.ResponseWriter, r *http.Request) {
@@ -557,6 +556,58 @@ func updateDMsToRead(w http.ResponseWriter, r *http.Request) {
 
 // }
 
+func leaveGroup(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	id, ok := getId(w, r)
+	if !ok {
+		return
+	}
+
+	var body map[string]interface{}
+	err := json.NewDecoder(r.Body).Decode(&body)
+	if err != nil {
+		log.Println("1")
+		failureRes(w, r)
+		return
+	}
+
+	groupId := int(body["groupid"].(float64))
+
+	var senderUsername string
+	if rows, ok := dbhandler.GetUsernames([]int{id}); ok {
+		users, ok := structs.StructifyRows(rows, reflect.TypeOf(structs.User{}))
+		if !ok {
+			log.Println("3")
+			failureRes(w, r)
+			return
+		}
+		senderUsername = users[0].(*structs.User).Username
+	}
+
+	sysMsg := senderUsername + " left the group"
+	mt := 1
+	if !sendGM(&structs.GroupMessage{
+		Message:  sysMsg,
+		SenderId: id,
+		GroupId:  groupId,
+		IsSystem: true,
+	}, false, true, &mt) {
+		log.Println("4")
+		failureRes(w, r)
+		return
+	}
+
+	if !dbhandler.LeaveGroup(&id, &groupId) {
+		log.Println("2")
+		failureRes(w, r)
+		return
+	}
+
+	jsonRes, _ := json.Marshal(apiResponse{Message: "SUCCESS"})
+	w.Write(jsonRes)
+}
+
 func addToGroup(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -582,11 +633,12 @@ func addToGroup(w http.ResponseWriter, r *http.Request) {
 
 	res := dbhandler.AddToGroup(&id, &friendIdsCasted, &groupId)
 	if res != "SUCCESS" {
+		log.Println(res)
 		failureRes(w, r)
 		return
 	}
 
-	usernames := make(map[int]string, 0)
+	usernames := make(map[int]string)
 	var senderUsername string
 	if rows, ok := dbhandler.GetUsernames(append(friendIdsCasted, id)); ok {
 		users, ok := structs.StructifyRows(rows, reflect.TypeOf(structs.User{}))
@@ -619,7 +671,7 @@ func addToGroup(w http.ResponseWriter, r *http.Request) {
 			SenderId: id,
 			GroupId:  groupId,
 			IsSystem: true,
-		}, sendToSender, &mt) {
+		}, sendToSender, true, &mt) {
 			failureRes(w, r)
 			return
 		}

@@ -15,6 +15,7 @@ class Xenosocket{
 
         this.getGroups = () => {}
         this.getFriends = () => {}
+        this.handleBeforeHistory = () => {}
 
         this.setState = null
     }
@@ -63,13 +64,18 @@ class Xenosocket{
                     }
                     break
                 case "GM":
-                    if(this.chat.chatid === data.body.groupid) {
+                    if(this.chat.chatid === data.body.message.groupid) {
+                        if(data.body.members !== undefined) {
+                            this.setGroupMembers(data.body.members)
+                            console.log("came")
+                        }
+
                         let newChat = Object.assign({}, this.chat)
-                        newChat.history.push(data.body)
+                        newChat.history.push(data.body.message)
                         this.setChat(newChat)
-                    } else if(!this.notifications.groupids.includes(data.body.groupid)) {
+                    } else if(!this.notifications.groupids.includes(data.body.message.groupid)) {
                         let newNoti = Object.assign({}, this.notifications)
-                        newNoti.groupids.push(data.body.groupid)
+                        newNoti.groupids.push(data.body.message.groupid)
                         newNoti.groupscores.push(1)
                         this.setNotifications(newNoti)
                     } else {
@@ -80,9 +86,11 @@ class Xenosocket{
                     }
                     break
                 case "CHAT_HISTORY_RES":  
+                    console.log(data)
                     if(data.body.history.group) {
                         this.setGroupMembers(data.body.members)
                     }
+                    this.setUnreadDivider(data.body.history.history.length)
                     this.setChat(data.body.history)
 
                     break

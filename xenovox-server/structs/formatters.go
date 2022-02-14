@@ -75,6 +75,10 @@ func StructifyRows(rows *sql.Rows, objType reflect.Type) (objs []interface{}, ok
 				continue
 
 			case []byte:
+				if _, ok := fieldMap[columns[i]]; !ok {
+					continue
+				}
+
 				s := string(value.([]byte))
 				x, err := strconv.Atoi(s)
 
@@ -85,12 +89,21 @@ func StructifyRows(rows *sql.Rows, objType reflect.Type) (objs []interface{}, ok
 				}
 
 			case string:
+				if _, ok := fieldMap[columns[i]]; !ok {
+					continue
+				}
 				fieldMap[columns[i]].SetString(value.(string))
 
 			case bool:
+				if _, ok := fieldMap[columns[i]]; !ok {
+					continue
+				}
 				fieldMap[columns[i]].SetBool(value.(bool))
 
 			case int64:
+				if _, ok := fieldMap[columns[i]]; !ok {
+					continue
+				}
 				fieldMap[columns[i]].SetInt(value.(int64))
 
 			default:

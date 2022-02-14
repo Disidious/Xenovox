@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"reflect"
 	"strconv"
 
 	structs "github.com/Disidious/Xenovox/Structs"
@@ -48,8 +49,7 @@ func generateToken() string {
 }
 
 func InsertGroupMessage(message *structs.GroupMessage) string {
-	// Check if the relation is Blocked before sending the message
-	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2`
+	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2 AND "left" = false`
 	row := db.QueryRow(checkQ, message.SenderId, message.GroupId)
 	var count int
 	row.Scan(&count)
@@ -63,11 +63,6 @@ func InsertGroupMessage(message *structs.GroupMessage) string {
 		log.Println(err)
 		return "FAILED"
 	}
-
-	// TODO: Send notifications to all members
-
-	// membersQ := `SELECT userid FROM group_members WHERE groupid = $1 AND userid != $2`
-	// rows, err := db.Query(membersQ, message.GroupId, message.SenderId)
 
 	return "SUCCESS"
 }
@@ -338,7 +333,7 @@ func GetGroups(id *int) (rows *sql.Rows, status bool) {
 	rows, err := db.Query(`SELECT groups.id, groups.name, groups.ownerid, groups.picture 
 	FROM groups
 	INNER JOIN group_members
-	ON userid = $1 AND groupid = groups.id`, id)
+	ON userid = $1 AND groupid = groups.id and "left" = false`, id)
 
 	if err != nil {
 		log.Fatal(err)
@@ -375,9 +370,15 @@ func GetPrivateChat(id *int, id2 *int) (rows *sql.Rows, status bool) {
 	return
 }
 
-func GetGroupMembers(groupId *int) (rows *sql.Rows, status bool) {
-	rows, err := db.Query(`SELECT users.id as "id", username, picture FROM users 
-	INNER JOIN group_members ON userid = users.id AND groupid = $1`, groupId)
+func GetGroupMembers(groupId *int, includingLeftMembers *bool) (rows *sql.Rows, status bool) {
+	query := `SELECT users.id as "id", username, picture FROM users 
+	INNER JOIN group_members ON userid = users.id AND groupid = $1 `
+
+	if !*includingLeftMembers {
+		query += `AND "left" = false`
+	}
+
+	rows, err := db.Query(query, groupId)
 	if err != nil {
 		log.Fatal(err)
 		status = false
@@ -389,7 +390,7 @@ func GetGroupMembers(groupId *int) (rows *sql.Rows, status bool) {
 }
 
 func GetGroupChatAndMembers(id *int, groupId *int) (hrows *sql.Rows, mrows *sql.Rows, status bool) {
-	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2`
+	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2 and "left" = false`
 	row := db.QueryRow(checkQ, id, groupId)
 	var count int
 	row.Scan(&count)
@@ -405,7 +406,8 @@ func GetGroupChatAndMembers(id *int, groupId *int) (hrows *sql.Rows, mrows *sql.
 		return
 	}
 
-	mrows, ok := GetGroupMembers(groupId)
+	includingLeftMembers := true
+	mrows, ok := GetGroupMembers(groupId, &includingLeftMembers)
 	if !ok {
 		log.Fatal(err)
 		status = false
@@ -540,7 +542,7 @@ func FriendReqExists(id *int) (result bool) {
 
 func AddToGroup(id *int, friendIds *[]int, groupId *int) string {
 	// Checks if the user to add is already a member
-	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = ANY($1) AND groupid = $2`
+	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = ANY($1) AND groupid = $2 and "left" = false`
 	row := db.QueryRow(checkQ, pq.Array(*friendIds), groupId)
 	var count int
 	row.Scan(&count)
@@ -549,7 +551,7 @@ func AddToGroup(id *int, friendIds *[]int, groupId *int) string {
 	}
 
 	// Checks if the user that is adding is a member
-	checkQ3 := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2`
+	checkQ3 := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2 AND "left" = false`
 	row3 := db.QueryRow(checkQ3, id, groupId)
 	var count3 int
 	row3.Scan(&count3)
@@ -567,31 +569,88 @@ func AddToGroup(id *int, friendIds *[]int, groupId *int) string {
 		return "NOT_FRIENDS"
 	}
 
-	addQ := `INSERT INTO group_members (userid, groupid) VALUES`
-	groupIdStr := strconv.Itoa(*groupId)
-	for _, friendId := range *friendIds {
-		addQ += "(" + strconv.Itoa(friendId) + "," + groupIdStr + "),"
-	}
-	if addQ[len(addQ)-1] == ',' {
-		addQ = addQ[:len(addQ)-1]
+	leftMemsQ := `SELECT userid as "id" FROM group_members WHERE userid = ANY($1) AND groupid = $2 and "left" = true`
+	rows, err := db.Query(leftMemsQ, pq.Array(*friendIds), groupId)
+
+	var leftIds []int
+	isLeft := make(map[int]bool)
+	if err == nil {
+		users, ok := structs.StructifyRows(rows, reflect.TypeOf(structs.User{}))
+		if ok {
+			for _, user := range users {
+				userCasted := user.(*structs.User)
+				leftIds = append(leftIds, userCasted.Id)
+				isLeft[userCasted.Id] = true
+			}
+		}
 	}
 
-	_, err := db.Exec(addQ)
-	if err != nil {
-		log.Println(err)
-		return "FAILED"
+	if len(leftIds) != 0 {
+		updateQ := `UPDATE group_members SET "left" = false WHERE userid = ANY($1)`
+		_, err = db.Exec(updateQ, pq.Array(leftIds))
+		if err != nil {
+			log.Println(err)
+			return "FAILED"
+		}
+	}
+
+	if len(leftIds) != len(*friendIds) {
+		addQ := `INSERT INTO group_members (userid, groupid) VALUES`
+		groupIdStr := strconv.Itoa(*groupId)
+		for _, friendId := range *friendIds {
+			if isLeft[friendId] {
+				continue
+			}
+			addQ += "(" + strconv.Itoa(friendId) + "," + groupIdStr + "),"
+		}
+		if addQ[len(addQ)-1] == ',' {
+			addQ = addQ[:len(addQ)-1]
+		}
+
+		_, err = db.Exec(addQ)
+		if err != nil {
+			log.Println(err)
+			return "FAILED"
+		}
 	}
 
 	return "SUCCESS"
 }
 
 func LeaveGroup(id *int, groupId *int) bool {
-	remQ := `DELETE FROM group_members WHERE userid = $1 AND groupid = $2`
+	remQ := `UPDATE group_members SET "left" = true WHERE userid = $1 AND groupid = $2`
 	_, err := db.Exec(remQ, id, groupId)
 
 	if err != nil || !removeUnreadMsg(groupId, id, true) {
 		log.Println(err)
 		return false
+	}
+
+	ownerQ := `SELECT ownerid FROM groups WHERE id = $1`
+	row := db.QueryRow(ownerQ, groupId)
+	var ownerId int
+	err = row.Scan(&ownerId)
+	if err != nil {
+		log.Println(err)
+		return false
+	}
+
+	if ownerId == *id {
+		getMemberQ := `SELECT userid FROM group_members WHERE groupid = $1 && userid != $2 LIMIT 1`
+		row := db.QueryRow(getMemberQ, groupId, id)
+		var newOwnerId int
+		err = row.Scan(&ownerId)
+		if err != nil {
+			log.Println(err)
+			return true
+		}
+
+		updateOwnerQ := `UPDATE groups SET ownerid = $1 WHERE id = $2`
+		_, err = db.Exec(updateOwnerQ, newOwnerId, groupId)
+		if err != nil {
+			log.Println(err)
+			return false
+		}
 	}
 
 	return true
