@@ -1,7 +1,7 @@
 class Xenosocket{
     constructor() {
         this.socket = null
-        this.manualDisconnect = false
+        this.notRetry = false
         this.reconnected = false
 
         this.chat = null
@@ -16,6 +16,7 @@ class Xenosocket{
         this.getGroups = () => {}
         this.getFriends = () => {}
         this.handleBeforeHistory = () => {}
+        this.setNewGroupInfo = () => {}
 
         this.setState = null
     }
@@ -26,7 +27,7 @@ class Xenosocket{
 
         console.log('opened')
         this.socket = new WebSocket("ws://localhost:7777/socket");
-        this.manualDisconnect = false
+        this.notRetry = false
         
         this.socket.onopen = () => {
             this.setState("DONE")
@@ -67,9 +68,11 @@ class Xenosocket{
                     if(this.chat.chatid === data.body.message.groupid) {
                         if(data.body.members !== undefined) {
                             this.setGroupMembers(data.body.members)
-                            console.log("came")
                         }
-
+                        if(data.body.groupinfo !== undefined) {
+                            console.log(data.body.groupinfo)
+                            //this.setNewGroupInfo(data.body.groupinfo)
+                        }
                         let newChat = Object.assign({}, this.chat)
                         newChat.history.push(data.body.message)
                         this.setChat(newChat)
@@ -118,14 +121,17 @@ class Xenosocket{
                 case "REFRESH_GROUPS":
                     this.getGroups();
                     break
-
+                case "ANOTHER_LOGIN":
+                    this.notRetry = true
+                    alert(`Someone else logged in`)
+                    break
                 default:
             }
             console.log(data)
         }
 
         this.socket.onclose = () => {
-            if(this.manualDisconnect)
+            if(this.notRetry) 
                 return
             console.log('closed')
             setTimeout(() => {
@@ -136,14 +142,14 @@ class Xenosocket{
         }
 
         this.socket.onerror = (error) => {
-            if(this.manualDisconnect)
+            if(this.notRetry)
                 return
             alert(`Reconnecting...`);
         };
     }
 
     disconnect() {
-        this.manualDisconnect = true
+        this.notRetry = true
         this.socket.close()
     }
 

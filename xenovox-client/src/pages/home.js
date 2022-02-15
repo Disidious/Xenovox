@@ -142,8 +142,7 @@ function getChat(socket, chatId, group) {
     if(!group) {
         socket.getPrivateChat(chatId)
         return
-    }
-    
+    }   
     socket.getGroupChat(chatId)
 }
 
@@ -234,6 +233,16 @@ function Home(props) {
         }
     }
 
+    const setNewGroupInfo = (groupInfo) => {
+        let newGroups = [...groups]
+        console.log(newGroups)
+        let idx = newGroups.findIndex(group => group.id === groupInfo.id)
+        newGroups[idx] = groupInfo
+        console.log(idx)
+        console.log(newGroups)
+        setGroups(newGroups)
+    }
+
     const setUnreadDivider = (len) => {
         if(newDividerIdx.current === -1 && prevUnreadScore.current !== -1) {
             newDividerIdx.current = len - prevUnreadScore.current
@@ -274,6 +283,7 @@ function Home(props) {
         props.socket.getFriends = () => getFriends(props.url, setFriends)
         props.socket.getGroups = () => getGroups(props.url, setGroups)
         props.socket.setUnreadDivider = setUnreadDivider
+        props.socket.setNewGroupInfo = setNewGroupInfo
         props.socket.connect()
 
         getUserInfo(props.url, props.socket, setState, setInfo)
@@ -408,24 +418,8 @@ function Home(props) {
                                                     el.issystem ?
                                                     null
                                                     :
-                                                    !chat.group ?
                                                     <b>
-                                                        {
-                                                            el.senderid === userInfo.id ?
-                                                            userInfo.username
-                                                            :
-                                                            friends.find(friend => friend.id === el.senderid).username
-                                                        }
-                                                        <br/>
-                                                    </b>
-                                                    :
-                                                    <b>
-                                                        {
-                                                            el.senderid === userInfo.id ?
-                                                            userInfo.username
-                                                            :
-                                                            groupMembers.find(member => member.id === el.senderid).username
-                                                        }
+                                                        {el.username}
                                                         <br/>
                                                     </b>
                                                 }
