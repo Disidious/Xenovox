@@ -11,7 +11,7 @@ import (
 	structs "github.com/Disidious/Xenovox/Structs"
 )
 
-func getPrivateChat(friendId *int, mt *int, id *int, c *websocket.Conn) bool {
+func getPrivateChat(friendId *int, id *int, c *websocket.Conn) bool {
 	rows, status := dbhandler.GetPrivateChat(id, friendId)
 	if !status {
 		return false
@@ -37,12 +37,12 @@ func getPrivateChat(friendId *int, mt *int, id *int, c *websocket.Conn) bool {
 	}
 	jsonRes, _ := json.Marshal(response)
 
-	c.WriteMessage(*mt, jsonRes)
+	c.WriteMessage(websocket.TextMessage, jsonRes)
 
 	return true
 }
 
-func getGroupChatAndMembers(groupId *int, mt *int, id *int, c *websocket.Conn) bool {
+func getGroupChatAndMembers(groupId *int, id *int, c *websocket.Conn) bool {
 	hrows, mrows, status := dbhandler.GetGroupChatAndMembers(id, groupId)
 	if !status {
 		return false
@@ -74,14 +74,14 @@ func getGroupChatAndMembers(groupId *int, mt *int, id *int, c *websocket.Conn) b
 	}
 	jsonRes, _ := json.Marshal(response)
 
-	c.WriteMessage(*mt, jsonRes)
+	c.WriteMessage(websocket.TextMessage, jsonRes)
 
 	return true
 }
 
-func sendDM(message *structs.Message, mt *int) bool {
+func sendDM(message *structs.Message) bool {
 	// Insert message to database
-	ret := dbhandler.InsertDirectMessage(message)
+	dmId, ret := dbhandler.InsertDirectMessage(message)
 	if ret == "FAILED" {
 		log.Println(ret)
 		return false
@@ -89,9 +89,14 @@ func sendDM(message *structs.Message, mt *int) bool {
 		log.Println(ret)
 		return false
 	}
+
+	clientMsg := message.Convert()
+	clientMsg.Id = dmId
+	dbhandler.GetUsernameAndPicture(&message.SenderId, true).Scan(&clientMsg.Username, &clientMsg.Picture)
+
 	response := structs.ClientSocketMessage{
 		Type: "DM",
-		Body: message.Convert(),
+		Body: clientMsg,
 	}
 	jsonRes, _ := json.Marshal(response)
 
@@ -102,13 +107,13 @@ func sendDM(message *structs.Message, mt *int) bool {
 	// Get socket of the receiver of the message
 	if receiverSocket, ok := sockets[message.ReceiverId]; ok {
 		// Send message to receiver
-		receiverSocket.WriteMessage(*mt, jsonRes)
+		receiverSocket.WriteMessage(websocket.TextMessage, jsonRes)
 	} else {
 		log.Println("Receiver Offline")
 	}
 
 	// Send message to sender
-	err := sockets[message.SenderId].WriteMessage(*mt, jsonRes)
+	err := sockets[message.SenderId].WriteMessage(websocket.TextMessage, jsonRes)
 	if err != nil {
 		log.Println("err:", err)
 	}
@@ -116,42 +121,41 @@ func sendDM(message *structs.Message, mt *int) bool {
 	return true
 }
 
-func sendGM(message *structs.GroupMessage, sendToSender bool, sendMembers bool, mt *int) bool {
+func sendGM(message *structs.GroupMessage, sendToSender bool, sendMembers bool, sendGroupInfo bool) bool {
 	// Insert message to database
-	ret := dbhandler.InsertGroupMessage(message)
+	gmId, ret := dbhandler.InsertGroupMessage(message)
 	if ret == "FAILED" {
-		log.Println(ret)
 		return false
 	}
 
 	body := make(map[string]interface{})
-	body["message"] = message.Convert()
-	if sendMembers {
-		includingLeftMembers := true
-		mrows, ok := dbhandler.GetGroupMembers(&message.GroupId, &includingLeftMembers)
-		if !ok {
-			return false
-		}
 
-		members, ok := structs.StructifyRows(mrows, reflect.TypeOf(structs.ClientUser{}))
-		if !ok {
-			return false
-		}
-		body["members"] = members
-	}
-
-	response := structs.ClientSocketMessage{
-		Type: "GM",
-		Body: body,
-	}
-	jsonRes, _ := json.Marshal(response)
+	clientMsg := message.Convert()
+	clientMsg.Id = gmId
+	dbhandler.GetUsernameAndPicture(&message.SenderId, true).Scan(&clientMsg.Username, &clientMsg.Picture)
+	body["message"] = clientMsg
 
 	// Store notifications for all group members that are offline or not on chat
-	includingLeftMembers := false
-	mrows, ok := dbhandler.GetGroupMembers(&message.GroupId, &includingLeftMembers)
+	mrows, ok := dbhandler.GetGroupMembers(&message.GroupId)
 	if ok {
 		members, ok := structs.StructifyRows(mrows, reflect.TypeOf(structs.User{}))
 		if ok {
+			if sendGroupInfo {
+				rowInfo := dbhandler.GetGroupInfo(&message.GroupId)
+				body["groupinfo"], ok = structs.StructifyRows(rowInfo, reflect.TypeOf(structs.ClientGroup{}))
+				if !ok {
+					return false
+				}
+			}
+			if sendMembers {
+				body["members"] = members
+			}
+			response := structs.ClientSocketMessage{
+				Type: "GM",
+				Body: body,
+			}
+			jsonRes, _ := json.Marshal(response)
+
 			var membersToNotify []structs.User
 			for _, member := range members {
 				castedMember := member.(*structs.User)
@@ -161,7 +165,7 @@ func sendGM(message *structs.GroupMessage, sendToSender bool, sendMembers bool, 
 
 				if receiverSocket, ok := sockets[castedMember.Id]; ok {
 					// Send message to receiver
-					receiverSocket.WriteMessage(*mt, jsonRes)
+					receiverSocket.WriteMessage(websocket.TextMessage, jsonRes)
 				}
 
 				if currChat, ok := currChats[castedMember.Id]; !ok || currChat.chatType != Group || currChat.chatId != message.GroupId {
@@ -169,7 +173,11 @@ func sendGM(message *structs.GroupMessage, sendToSender bool, sendMembers bool, 
 				}
 			}
 			dbhandler.AppendUnreadGM(&message.GroupId, &membersToNotify)
+		} else {
+			return false
 		}
+	} else {
+		return false
 	}
 
 	return true
@@ -192,7 +200,7 @@ func sendAllNotifications(id *int, c *websocket.Conn) {
 	}
 	jsonRes, _ := json.Marshal(response)
 
-	err := c.WriteMessage(1, jsonRes)
+	err := c.WriteMessage(websocket.TextMessage, jsonRes)
 	if err != nil {
 		log.Println("err:", err)
 	}
@@ -208,7 +216,7 @@ func sendFRNotification(id *int, c *websocket.Conn) {
 
 	jsonRes, _ := json.Marshal(response)
 
-	err := c.WriteMessage(1, jsonRes)
+	err := c.WriteMessage(websocket.TextMessage, jsonRes)
 	if err != nil {
 		log.Println("err:", err)
 	}

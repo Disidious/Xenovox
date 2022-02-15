@@ -9,16 +9,29 @@ type ClientUser struct {
 }
 
 type ClientDM struct {
+	Id         int    `json:"id"`
 	Message    string `json:"message"`
 	SenderId   int    `json:"senderid"`
+	Username   string `json:"username"`
+	Picture    string `json:"string"`
 	ReceiverId int    `json:"receiverid"`
 }
 
 type ClientGM struct {
+	Id       int    `json:"id"`
 	Message  string `json:"message"`
 	SenderId int    `json:"senderid"`
+	Username string `json:"username"`
+	Picture  string `json:"string"`
 	GroupId  int    `json:"groupid"`
 	IsSystem bool   `json:"issystem"`
+}
+
+type ClientGroup struct {
+	Id      int    `json:"id"`
+	Name    string `json:"name"`
+	OwnerId int    `json:"ownerid"`
+	Picture string `json:"picture"`
 }
 
 type ClientChatHistory struct {

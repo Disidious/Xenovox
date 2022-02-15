@@ -41,9 +41,9 @@ var upgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool {
 var sockets map[int]*websocket.Conn = make(map[int]*websocket.Conn)
 var currChats map[int]chat = make(map[int]chat)
 
-func resetSocket(id *int) {
+func resetSocket(c *websocket.Conn, id *int) {
 	log.Println("Closing Socket ID", *id)
-	sockets[*id].Close()
+	c.Close()
 	delete(currChats, *id)
 }
 
@@ -60,11 +60,15 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 	id := dbhandler.GetUserId(&token)
 
 	if clientSocket, ok := sockets[id]; ok {
+		discMsg, _ := json.Marshal(structs.ClientSocketMessage{
+			Type: "ANOTHER_LOGIN",
+		})
+		clientSocket.WriteMessage(websocket.TextMessage, discMsg)
 		clientSocket.Close()
 	}
 
 	sockets[id] = c
-	defer resetSocket(&id)
+	defer resetSocket(c, &id)
 
 	sendAllNotifications(&id, c)
 
@@ -74,7 +78,7 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for {
-		mt, message, err := c.ReadMessage()
+		_, message, err := c.ReadMessage()
 
 		// If connection closed remove key from sockets map
 		if err != nil {
@@ -107,7 +111,7 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			messageObj.SenderId = id
-			if !sendDM(&messageObj, &mt) {
+			if !sendDM(&messageObj) {
 				continue
 			}
 			log.Printf("recv: %s", message)
@@ -128,7 +132,7 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			messageObj.SenderId = id
-			if !sendGM(&messageObj, true, false, &mt) {
+			if !sendGM(&messageObj, true, false, false) {
 				continue
 			}
 			log.Printf("recv: %s", message)
@@ -147,7 +151,7 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			friendIdInt := int(friendId)
-			if !getPrivateChat(&friendIdInt, &mt, &id, c) {
+			if !getPrivateChat(&friendIdInt, &id, c) {
 				currChats[id] = chat{
 					chatType: Private,
 					chatId:   -1,
@@ -172,7 +176,7 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			groupIdInt := int(groupId)
-			if !getGroupChatAndMembers(&groupIdInt, &mt, &id, c) {
+			if !getGroupChatAndMembers(&groupIdInt, &id, c) {
 				currChats[id] = chat{
 					chatType: Private,
 					chatId:   -1,
@@ -575,7 +579,7 @@ func leaveGroup(w http.ResponseWriter, r *http.Request) {
 	groupId := int(body["groupid"].(float64))
 
 	var senderUsername string
-	if rows, ok := dbhandler.GetUsernames([]int{id}); ok {
+	if rows := dbhandler.GetUsernameAndPicture(&id, false); ok {
 		users, ok := structs.StructifyRows(rows, reflect.TypeOf(structs.User{}))
 		if !ok {
 			log.Println("3")
@@ -586,13 +590,12 @@ func leaveGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sysMsg := senderUsername + " left the group"
-	mt := 1
 	if !sendGM(&structs.GroupMessage{
 		Message:  sysMsg,
 		SenderId: id,
 		GroupId:  groupId,
 		IsSystem: true,
-	}, false, true, &mt) {
+	}, false, true, true) {
 		log.Println("4")
 		failureRes(w, r)
 		return
@@ -665,13 +668,12 @@ func addToGroup(w http.ResponseWriter, r *http.Request) {
 		}
 
 		sysMsg := senderUsername + " added " + usernames[friendId]
-		mt := 1
 		if !sendGM(&structs.GroupMessage{
 			Message:  sysMsg,
 			SenderId: id,
 			GroupId:  groupId,
 			IsSystem: true,
-		}, sendToSender, true, &mt) {
+		}, sendToSender, true, false) {
 			failureRes(w, r)
 			return
 		}

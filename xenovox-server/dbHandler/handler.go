@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
-	"reflect"
 	"strconv"
 
 	structs "github.com/Disidious/Xenovox/Structs"
@@ -48,43 +47,42 @@ func generateToken() string {
 	return hex.EncodeToString(b)
 }
 
-func InsertGroupMessage(message *structs.GroupMessage) string {
-	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2 AND "left" = false`
+func InsertGroupMessage(message *structs.GroupMessage) (id int, status string) {
+	// Checks if sender is a member of the group
+	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2`
 	row := db.QueryRow(checkQ, message.SenderId, message.GroupId)
 	var count int
 	row.Scan(&count)
 	if count != 1 {
-		return "FAILED"
+		status = "FAILED"
+		return
 	}
 
-	addQ := `INSERT INTO group_messages (senderid, groupid, message, issystem) VALUES($1, $2, $3, $4)`
-	_, err := db.Exec(addQ, message.SenderId, message.GroupId, message.Message, message.IsSystem)
-	if err != nil {
-		log.Println(err)
-		return "FAILED"
-	}
+	addQ := `INSERT INTO group_messages (senderid, groupid, message, issystem) VALUES($1, $2, $3, $4) RETURNING id`
+	rowId := db.QueryRow(addQ, message.SenderId, message.GroupId, message.Message, message.IsSystem)
 
-	return "SUCCESS"
+	rowId.Scan(&id)
+	status = "SUCCESS"
+	return
 }
 
-func InsertDirectMessage(message *structs.Message) string {
+func InsertDirectMessage(message *structs.Message) (id int, status string) {
 	// Check if the relation is Blocked before sending the message
 	checkQ := `SELECT relation FROM relations WHERE (user1id = $1 AND user2id = $2) OR (user1id = $2 AND user2id = $1)`
 	row := db.QueryRow(checkQ, message.SenderId, message.ReceiverId)
 	var relation int
 	row.Scan(&relation)
 	if relation == 2 {
-		return "BLOCKED"
+		status = "BLOCKED"
+		return
 	}
 
-	addQ := `INSERT INTO private_messages (senderId, receiverId, message) VALUES($1, $2, $3)`
-	_, err := db.Exec(addQ, message.SenderId, message.ReceiverId, message.Message)
-	if err != nil {
-		log.Println(err)
-		return "FAILED"
-	}
+	addQ := `INSERT INTO private_messages (senderId, receiverId, message) VALUES($1, $2, $3) RETURNING id`
+	rowId := db.QueryRow(addQ, message.SenderId, message.ReceiverId, message.Message)
+	rowId.Scan(&id)
+	status = "SUCCESS"
 
-	return "SUCCESS"
+	return
 }
 
 func AppendUnreadDM(senderId *int, receiverId *int) bool {
@@ -194,19 +192,19 @@ func CloseDb() {
 
 func Login(user *structs.User) (string, string) {
 
-	//Get id, username, password and token of the user logging in by his/her username.
+	// Get id, username, password and token of the user logging in by his/her username.
 	getUserQ := `SELECT id, username, password, token FROM users WHERE username = $1`
 
 	var id, username, password, token string
 	row := db.QueryRow(getUserQ, user.Username)
 	err := row.Scan(&id, &username, &password, &token)
 
-	//If any errors occured, the user was not found or the password was wrong then authentication is failed
+	// If any errors occured, the user was not found or the password was wrong then authentication is failed
 	if (err != sql.ErrNoRows && password != user.Password) || err == sql.ErrNoRows {
 		return "AUTH_FAILED", ""
 	}
 
-	//Generate Token flag.
+	// Generate Token flag.
 	var generate bool
 
 	/*
@@ -214,20 +212,12 @@ func Login(user *structs.User) (string, string) {
 		-	The token is empty.
 		-	There is an error during the token retreival from Redis.
 		-	The stored user id in Redis doesn't match the current user logging in.
-
-		Deletes value of the token if there is a stored id that doesn't match.
 	*/
-	if token == "" {
+	if token == "" || getIdRedis(&token) != id {
 		generate = true
-	} else {
-		storedId := getIdRedis(&token)
-		if storedId != id {
-			generate = true
-			rdb.Del(token)
-		}
 	}
 
-	//Create a random string with length 50 and putting it in Redis and the database
+	// Create a random string with length 50 and putting it in Redis and the database
 	if generate {
 		token = generateToken()
 		putTokenQ := `UPDATE users SET token = $1 WHERE id = $2`
@@ -245,8 +235,7 @@ func Login(user *structs.User) (string, string) {
 }
 
 func Register(newUser *structs.User) string {
-
-	//Check if the username or email already exists.
+	// Check if the username or email already exists.
 	checkQ := `SELECT username, email FROM users WHERE email = $1 OR username = $2`
 
 	var email, username string
@@ -261,10 +250,10 @@ func Register(newUser *structs.User) string {
 		}
 	}
 
-	//Generate token for new user.
+	// Generate token for new user.
 	token := generateToken()
 
-	//Insert new user in the database and store the id with the token as the key on Redis.
+	// Insert new user in the database and store the id with the token as the key on Redis.
 	var id string
 	q := `INSERT INTO users (username, password, name, email, picture, token) VALUES($1,$2,$3,$4,$5,$6) RETURNING id`
 	retId := db.QueryRow(q, newUser.Username, newUser.Password, newUser.Name, newUser.Email, newUser.Picture, token)
@@ -312,6 +301,15 @@ func GetUsernames(ids []int) (rows *sql.Rows, status bool) {
 	return
 }
 
+func GetUsernameAndPicture(id *int, getPic bool) (row *sql.Rows) {
+	q := `SELECT username `
+	if getPic {
+		q += `, picture `
+	}
+	row, _ = db.Query(q+`FROM users WHERE id = $1`, id)
+	return
+}
+
 func GetFriends(id *int) (rows *sql.Rows, status bool) {
 	rows, err := db.Query(`SELECT users.id, users.username, users.picture 
 	FROM users 
@@ -333,7 +331,7 @@ func GetGroups(id *int) (rows *sql.Rows, status bool) {
 	rows, err := db.Query(`SELECT groups.id, groups.name, groups.ownerid, groups.picture 
 	FROM groups
 	INNER JOIN group_members
-	ON userid = $1 AND groupid = groups.id and "left" = false`, id)
+	ON userid = $1 AND groupid = groups.id`, id)
 
 	if err != nil {
 		log.Fatal(err)
@@ -352,13 +350,13 @@ func GetAllConnections(id *int) (frows *sql.Rows, grows *sql.Rows, status bool) 
 	}
 
 	grows, status = GetGroups(id)
-
 	return
 }
 
 func GetPrivateChat(id *int, id2 *int) (rows *sql.Rows, status bool) {
-	rows, err := db.Query(`SELECT message, senderId FROM private_messages 
-	WHERE (senderId = $1 AND receiverId = $2) OR (senderId = $2 AND receiverId = $1) ORDER BY id`, id, id2)
+	rows, err := db.Query(`
+	SELECT private_messages.id as "id", message, senderId, username, picture FROM private_messages INNER JOIN users ON users.id = senderId
+	WHERE (senderId = $1 AND receiverId = $2) OR (senderId = $2 AND receiverId = $1) ORDER BY private_messages.id`, id, id2)
 
 	if err != nil {
 		log.Fatal(err)
@@ -370,13 +368,9 @@ func GetPrivateChat(id *int, id2 *int) (rows *sql.Rows, status bool) {
 	return
 }
 
-func GetGroupMembers(groupId *int, includingLeftMembers *bool) (rows *sql.Rows, status bool) {
+func GetGroupMembers(groupId *int) (rows *sql.Rows, status bool) {
 	query := `SELECT users.id as "id", username, picture FROM users 
-	INNER JOIN group_members ON userid = users.id AND groupid = $1 `
-
-	if !*includingLeftMembers {
-		query += `AND "left" = false`
-	}
+	INNER JOIN group_members ON userid = users.id AND groupid = $1`
 
 	rows, err := db.Query(query, groupId)
 	if err != nil {
@@ -390,7 +384,8 @@ func GetGroupMembers(groupId *int, includingLeftMembers *bool) (rows *sql.Rows, 
 }
 
 func GetGroupChatAndMembers(id *int, groupId *int) (hrows *sql.Rows, mrows *sql.Rows, status bool) {
-	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2 and "left" = false`
+	// Checks if user is a member of the group
+	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2`
 	row := db.QueryRow(checkQ, id, groupId)
 	var count int
 	row.Scan(&count)
@@ -399,15 +394,16 @@ func GetGroupChatAndMembers(id *int, groupId *int) (hrows *sql.Rows, mrows *sql.
 		return
 	}
 
-	hrows, err := db.Query(`SELECT message, senderid, issystem FROM group_messages WHERE groupid = $1`, groupId)
+	hrows, err := db.Query(`
+	SELECT group_messages.id as "id", message, senderid, username, picture, issystem 
+	FROM group_messages INNER JOIN users ON users.id = senderid WHERE groupid = $1`, groupId)
 	if err != nil {
 		log.Fatal(err)
 		status = false
 		return
 	}
 
-	includingLeftMembers := true
-	mrows, ok := GetGroupMembers(groupId, &includingLeftMembers)
+	mrows, ok := GetGroupMembers(groupId)
 	if !ok {
 		log.Fatal(err)
 		status = false
@@ -513,18 +509,6 @@ func UpsertRelation(relation *structs.Relation) string {
 	return "FAILED"
 }
 
-func GetUnreadDMs(id *int) (rows *sql.Rows, status bool) {
-	rows, err := db.Query(`SELECT DISTINCT senderid FROM private_messages WHERE receiverid = $1 AND read = false`, id)
-	if err != nil {
-		log.Fatal(err)
-		status = false
-	} else {
-		status = true
-	}
-
-	return
-}
-
 func FriendReqExists(id *int) (result bool) {
 	row := db.QueryRow(`SELECT COUNT(*) as count FROM relations WHERE relation = 0 AND user2id = $1 LIMIT 1`, id)
 
@@ -541,21 +525,22 @@ func FriendReqExists(id *int) (result bool) {
 }
 
 func AddToGroup(id *int, friendIds *[]int, groupId *int) string {
-	// Checks if the user to add is already a member
-	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = ANY($1) AND groupid = $2 and "left" = false`
-	row := db.QueryRow(checkQ, pq.Array(*friendIds), groupId)
-	var count int
-	row.Scan(&count)
-	if count != 0 {
-		return "EXISTS"
+	if len(*friendIds) == 0 {
+		return "FAILED"
 	}
 
-	// Checks if the user that is adding is a member
-	checkQ3 := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2 AND "left" = false`
-	row3 := db.QueryRow(checkQ3, id, groupId)
-	var count3 int
-	row3.Scan(&count3)
-	if count3 == 0 {
+	// Checks if the user to add is already a member and if the user that is adding is a member
+	checkQ := `SELECT userid FROM group_members WHERE groupid = $1 AND (userid = ANY($2) OR userid = $3)`
+	rows, err := db.Query(checkQ, groupId, pq.Array(*friendIds), id)
+	if err == nil && rows.Next() {
+		var userId int
+		rows.Scan(&userId)
+
+		if userId != *id || rows.Next() {
+			log.Println(userId)
+			return "EXISTS"
+		}
+	} else {
 		return "NOT_MEMBER"
 	}
 
@@ -569,56 +554,24 @@ func AddToGroup(id *int, friendIds *[]int, groupId *int) string {
 		return "NOT_FRIENDS"
 	}
 
-	leftMemsQ := `SELECT userid as "id" FROM group_members WHERE userid = ANY($1) AND groupid = $2 and "left" = true`
-	rows, err := db.Query(leftMemsQ, pq.Array(*friendIds), groupId)
-
-	var leftIds []int
-	isLeft := make(map[int]bool)
-	if err == nil {
-		users, ok := structs.StructifyRows(rows, reflect.TypeOf(structs.User{}))
-		if ok {
-			for _, user := range users {
-				userCasted := user.(*structs.User)
-				leftIds = append(leftIds, userCasted.Id)
-				isLeft[userCasted.Id] = true
-			}
-		}
+	addQ := `INSERT INTO group_members (userid, groupid) VALUES`
+	groupIdStr := strconv.Itoa(*groupId)
+	for _, friendId := range *friendIds {
+		addQ += "(" + strconv.Itoa(friendId) + "," + groupIdStr + "),"
 	}
+	addQ = addQ[:len(addQ)-1]
 
-	if len(leftIds) != 0 {
-		updateQ := `UPDATE group_members SET "left" = false WHERE userid = ANY($1)`
-		_, err = db.Exec(updateQ, pq.Array(leftIds))
-		if err != nil {
-			log.Println(err)
-			return "FAILED"
-		}
-	}
-
-	if len(leftIds) != len(*friendIds) {
-		addQ := `INSERT INTO group_members (userid, groupid) VALUES`
-		groupIdStr := strconv.Itoa(*groupId)
-		for _, friendId := range *friendIds {
-			if isLeft[friendId] {
-				continue
-			}
-			addQ += "(" + strconv.Itoa(friendId) + "," + groupIdStr + "),"
-		}
-		if addQ[len(addQ)-1] == ',' {
-			addQ = addQ[:len(addQ)-1]
-		}
-
-		_, err = db.Exec(addQ)
-		if err != nil {
-			log.Println(err)
-			return "FAILED"
-		}
+	_, err = db.Exec(addQ)
+	if err != nil {
+		log.Println(err)
+		return "FAILED"
 	}
 
 	return "SUCCESS"
 }
 
 func LeaveGroup(id *int, groupId *int) bool {
-	remQ := `UPDATE group_members SET "left" = true WHERE userid = $1 AND groupid = $2`
+	remQ := `DELETE FROM group_members WHERE userid = $1 AND groupid = $2`
 	_, err := db.Exec(remQ, id, groupId)
 
 	if err != nil || !removeUnreadMsg(groupId, id, true) {
@@ -626,6 +579,7 @@ func LeaveGroup(id *int, groupId *int) bool {
 		return false
 	}
 
+	// Change owner to be the first found member if the user that left is the owner
 	ownerQ := `SELECT ownerid FROM groups WHERE id = $1`
 	row := db.QueryRow(ownerQ, groupId)
 	var ownerId int
@@ -636,10 +590,10 @@ func LeaveGroup(id *int, groupId *int) bool {
 	}
 
 	if ownerId == *id {
-		getMemberQ := `SELECT userid FROM group_members WHERE groupid = $1 && userid != $2 LIMIT 1`
-		row := db.QueryRow(getMemberQ, groupId, id)
+		getMemberQ := `SELECT userid FROM group_members WHERE groupid = $1 LIMIT 1`
+		row := db.QueryRow(getMemberQ, groupId)
 		var newOwnerId int
-		err = row.Scan(&ownerId)
+		err = row.Scan(&newOwnerId)
 		if err != nil {
 			log.Println(err)
 			return true
@@ -654,4 +608,10 @@ func LeaveGroup(id *int, groupId *int) bool {
 	}
 
 	return true
+}
+
+func GetGroupInfo(groupId *int) (row *sql.Rows) {
+	q := `SELECT id, name, ownerid, picture FROM groups WHERE id = $1`
+	row, _ = db.Query(q, groupId)
+	return
 }
