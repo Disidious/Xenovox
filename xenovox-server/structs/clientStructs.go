@@ -34,6 +34,13 @@ type ClientGroup struct {
 	Picture string `json:"picture"`
 }
 
+type ClientGroupMember struct {
+	Id       int    `json:"id"`
+	UserId   int    `json:"userid"`
+	Username string `json:"username"`
+	Picture  string `json:"picture"`
+}
+
 type ClientChatHistory struct {
 	Group   bool        `json:"group"`
 	ChatId  int         `json:"chatid"`

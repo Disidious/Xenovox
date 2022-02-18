@@ -5,11 +5,11 @@ import (
 )
 
 func (m *Message) Convert() ClientDM {
-	return ClientDM{Message: m.Message, SenderId: m.SenderId, ReceiverId: m.ReceiverId}
+	return ClientDM{Message: m.Message, SenderId: m.SenderId, ReceiverId: m.ReceiverId, Id: m.Id}
 }
 
 func (m *GroupMessage) Convert() ClientGM {
-	return ClientGM{Message: m.Message, SenderId: m.SenderId, GroupId: m.GroupId, IsSystem: m.IsSystem}
+	return ClientGM{Message: m.Message, SenderId: m.SenderId, GroupId: m.GroupId, IsSystem: m.IsSystem, Id: m.Id}
 }
 
 func GetFieldMap(obj interface{}) (fieldMap map[string]reflect.Value) {

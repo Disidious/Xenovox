@@ -3,22 +3,6 @@ class Xenosocket{
         this.socket = null
         this.notRetry = false
         this.reconnected = false
-
-        this.chat = null
-        this.setChat = null
-        this.setGroupMembers = null
-
-        this.notifications = null
-        this.setNotifications = null
-
-        this.refreshed = null
-
-        this.getGroups = () => {}
-        this.getFriends = () => {}
-        this.handleBeforeHistory = () => {}
-        this.setNewGroupInfo = () => {}
-
-        this.setState = null
     }
 
     connect() {
@@ -48,7 +32,8 @@ class Xenosocket{
             var data = JSON.parse(event.data)
             switch(data.type) {
                 case "DM":
-                    if(this.chat.chatid === data.body.senderid || this.chat.chatid === data.body.receiverid) {
+                    if((this.chat.chatid === data.body.senderid || this.chat.chatid === data.body.receiverid) &&
+                    !this.chat.group) {
                         let newChat = Object.assign({}, this.chat)
                         newChat.history.push(data.body)
                         this.setChat(newChat)
@@ -65,13 +50,13 @@ class Xenosocket{
                     }
                     break
                 case "GM":
-                    if(this.chat.chatid === data.body.message.groupid) {
+                    if(data.body.groupinfo !== undefined) {
+                        this.setGroupInfo(data.body.groupinfo)
+                    }
+
+                    if(this.chat.chatid === data.body.message.groupid && this.chat.group) {
                         if(data.body.members !== undefined) {
                             this.setGroupMembers(data.body.members)
-                        }
-                        if(data.body.groupinfo !== undefined) {
-                            console.log(data.body.groupinfo)
-                            //this.setNewGroupInfo(data.body.groupinfo)
                         }
                         let newChat = Object.assign({}, this.chat)
                         newChat.history.push(data.body.message)
@@ -82,19 +67,15 @@ class Xenosocket{
                         newNoti.groupscores.push(1)
                         this.setNotifications(newNoti)
                     } else {
-                        let idx = this.notifications.groupids.indexOf(data.body.groupid)
+                        let idx = this.notifications.groupids.indexOf(data.body.message.groupid)
                         let newNoti = Object.assign({}, this.notifications)
                         newNoti.groupscores[idx]++
                         this.setNotifications(newNoti)
                     }
                     break
                 case "CHAT_HISTORY_RES":  
-                    console.log(data)
-                    if(data.body.history.group) {
-                        this.setGroupMembers(data.body.members)
-                    }
-                    this.setUnreadDivider(data.body.history.history.length)
-                    this.setChat(data.body.history)
+                    this.setUnreadDivider(data.body.history.length)
+                    this.setChat(data.body)
 
                     break
                 
@@ -115,11 +96,11 @@ class Xenosocket{
                     break
 
                 case "REFRESH_FRIENDS":
-                    this.getFriends();
+                    this.setFriendInfo(data.body.entity, data.body.remove)
                     break
                 
                 case "REFRESH_GROUPS":
-                    this.getGroups();
+                    this.setGroupInfo(data.body.entity, data.body.remove)
                     break
                 case "ANOTHER_LOGIN":
                     this.notRetry = true

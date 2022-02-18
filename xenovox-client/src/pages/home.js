@@ -74,7 +74,7 @@ function getGroups(url, setGroups) {
             return
 
         if(data.length === 0) {
-            setGroups([{id:-1}])
+            setGroups([])
         } else {
             setGroups(data)
         }
@@ -98,7 +98,7 @@ function getFriends(url, setFriends) {
             return
 
         if(data.length === 0) {
-            setFriends([{id:-1}])
+            setFriends([])
         } else {
             setFriends(data)
         }
@@ -122,13 +122,13 @@ function getConnections(url, setFriends, setGroups) {
             return
 
         if(data.friends.length === 0) {
-            setFriends([{id:-1}])
+            setFriends([])
         } else {
             setFriends(data.friends)
         }
 
         if(data.groups.length === 0) {
-            setGroups([{id:-1}])
+            setGroups([])
         } else {
             setGroups(data.groups)
         }
@@ -189,8 +189,8 @@ function Home(props) {
     const[socketState, setSocState] = useState("CONNECTING")
 
     const[userInfo, setInfo] = useState({id: -1, username: "", name: "", email: "", picture: ""})
-    const[friends, setFriends] = useState([])
-    const[groups, setGroups] = useState([])
+    const[friends, setFriends] = useState([{id:-1}])
+    const[groups, setGroups] = useState([{id:-1}])
     const[groupMembers, setGroupMembers] = useState([])
     const[chat, setChat] = useState({group: false, chatid: -1, history: []})
     const[notifications, setNotifications] = useState({senderids: [], senderscores: [], groupids: [], groupscores: [], friendreq: false})
@@ -216,7 +216,7 @@ function Home(props) {
     }
 
     const handleHistory = (id, isGroup) => {
-        if(chat.chatid !== id) {
+        if(chat.chatid !== id || chat.group !== isGroup) {
             newDividerIdx.current = -1
             prevUnreadScore.current = -1
             
@@ -231,16 +231,6 @@ function Home(props) {
             }
             getChat(props.socket, id, isGroup)
         }
-    }
-
-    const setNewGroupInfo = (groupInfo) => {
-        let newGroups = [...groups]
-        console.log(newGroups)
-        let idx = newGroups.findIndex(group => group.id === groupInfo.id)
-        newGroups[idx] = groupInfo
-        console.log(idx)
-        console.log(newGroups)
-        setGroups(newGroups)
     }
 
     const setUnreadDivider = (len) => {
@@ -266,7 +256,61 @@ function Home(props) {
         }
         handleMsg()
     }
-    
+
+    const setFriendInfo = (friendInfo, rem) => {
+        let newFriends = [...friends]
+        if(rem === true) {
+            let idx = newFriends.findIndex(friend => friend.id === friendInfo)
+            newFriends.splice(idx, 1)
+
+            let notiIdx = notifications.senderids.indexOf(friendInfo)
+            if(notiIdx !== -1) {
+                let newNotifications = Object.assign({}, notifications)
+                newNotifications.senderids.splice(notiIdx, 1)
+                newNotifications.senderscores.splice(notiIdx, 1)
+                setNotifications(newNotifications)
+            }
+            if(chat.chatid === friendInfo){
+                setChat({group: false, chatid: -1, history: []})
+            }
+        } else if(rem === false) {
+            newFriends.push(friendInfo)
+        } else {
+            let idx = newFriends.findIndex(friend => friend.id === friendInfo.id)
+            newFriends[idx] = friendInfo
+        }
+
+        setFriends(newFriends)
+    }
+
+    const setGroupInfo = (groupInfo, rem) => {
+        let newGroups = [...groups]
+        if(rem === true) {
+            let idx = newGroups.findIndex(group => group.id === groupInfo)
+            console.log(idx)
+            console.log(groupInfo)
+            newGroups.splice(idx, 1)
+
+            let notiIdx = notifications.groupids.indexOf(groupInfo)
+            if(notiIdx !== -1) {
+                let newNotifications = Object.assign({}, notifications)
+                newNotifications.groupids.splice(notiIdx, 1)
+                newNotifications.groupscores.splice(notiIdx, 1)
+                setNotifications(newNotifications)
+            }
+            if(chat.chatid === groupInfo){
+                setChat({group: false, chatid: -1, history: []})
+            }
+        } else if(rem === false) {
+            newGroups.push(groupInfo)
+        } else {
+            let idx = newGroups.findIndex(group => group.id === groupInfo.id)
+            newGroups[idx] = groupInfo
+        }
+
+        setGroups(newGroups)
+    }
+
     props.socket.chat = chat
     props.socket.notifications = notifications
     
@@ -279,11 +323,8 @@ function Home(props) {
         props.socket.setGroupMembers = setGroupMembers
         props.socket.setState = setSocState
         props.socket.setNotifications = setNotifications
-        props.socket.refreshed = calledOnce
-        props.socket.getFriends = () => getFriends(props.url, setFriends)
-        props.socket.getGroups = () => getGroups(props.url, setGroups)
         props.socket.setUnreadDivider = setUnreadDivider
-        props.socket.setNewGroupInfo = setNewGroupInfo
+        props.socket.refreshed = calledOnce
         props.socket.connect()
 
         getUserInfo(props.url, props.socket, setState, setInfo)
@@ -299,7 +340,7 @@ function Home(props) {
         })
 
         calledOnce.current = true
-    }, [props.socket, props.url, chat, userMenuProps])
+    }, [props.socket, props.url])
 
     useEffect(()=>{
         var history = document.getElementById("history")
@@ -308,6 +349,16 @@ function Home(props) {
         }
     },[chat])
     
+    useEffect(()=>{
+        props.socket.setGroupInfo = setGroupInfo
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [groups, chat])
+
+    useEffect(()=>{
+        props.socket.setFriendInfo = setFriendInfo
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [friends, chat])
+
     if(loggedOut){
         return (<Navigate to='/'/>)
     }
@@ -339,8 +390,12 @@ function Home(props) {
             url={props.url}
             info={userMenuProps}
             setModalState={setConfirmationModalInfo}
-            refreshFriends={() => {getFriends(props.url, setFriends)}}
-            refreshGroups={() => {getGroups(props.url, setGroups)}}
+            refreshFriends={(chatId) => {
+                setFriendInfo(chatId, true)
+            }}
+            refreshGroups={(chatId) => {
+                setGroupInfo(chatId, true)
+            }}
             resetChat={(chatId) => {
                 if(chat.chatid === chatId){
                     setChat({group: false, chatid: -1, history: []})
@@ -479,16 +534,16 @@ function Home(props) {
                                     friends.length === 0 ?
                                     <center style={{paddingTop: "50%"}}>
                                         <br/>
-                                        <Spinner/>
-                                    </center>
-                                    :
-                                    friends[0].id === -1 ?
-                                    <center style={{paddingTop: "50%"}}>
-                                        <br/>
                                         <p className="info-message">
                                             You don't have any friends
                                         </p>
                                     </center>
+                                    :
+                                    friends[0].id === -1 ?
+                                    <div style={{paddingTop: "50%"}}>
+                                        <br/>
+                                        <Spinner/>
+                                    </div>
                                     :
                                     friends.map((el, key) => (
                                         <button className={
@@ -500,7 +555,7 @@ function Home(props) {
                                             handleHistory(el.id, false)
                                         }}
                                         onContextMenu={event=>handleContextMenu(event, el.id, false, el.username)}
-                                        disabled={el.id === chat.chatid}>
+                                        disabled={el.id === chat.chatid && !chat.group}>
                                             {el.username}
                                             {
                                                 notifications.senderids.includes(el.id) ?
@@ -517,16 +572,16 @@ function Home(props) {
                                     groups.length === 0 ?
                                     <center style={{paddingTop: "50%"}}>
                                         <br/>
-                                        <Spinner/>
-                                    </center>
-                                    :
-                                    groups[0].id === -1 ?
-                                    <center style={{paddingTop: "50%"}}>
-                                        <br/>
                                         <p className="info-message">
                                             You are not in any group
                                         </p>
                                     </center>
+                                    :
+                                    groups[0].id === -1 ?
+                                    <div style={{paddingTop: "50%"}}>
+                                        <br/>
+                                        <Spinner/>
+                                    </div>
                                     :
                                     groups.map((el, key) => (
                                         <button className={
@@ -538,7 +593,7 @@ function Home(props) {
                                             handleHistory(el.id, true)
                                         }}
                                         onContextMenu={event=>handleContextMenu(event, el.id, true, el.name)}
-                                        disabled={el.id === chat.chatid}>
+                                        disabled={el.id === chat.chatid && chat.group}>
                                             {el.name}
                                             {
                                                 notifications.groupids.includes(el.id) ?

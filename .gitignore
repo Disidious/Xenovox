@@ -1,3 +1,4 @@
 postgresdb-files/compose.yaml
 postgresdb-files/run-docker-compose.bat
 .vs/
+notes.txt

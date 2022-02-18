@@ -96,6 +96,16 @@ class GroupInviteModal extends React.Component {
                                 <th>Name</th>
                             </tr>
                             {
+                                this.props.groups.length === 0 ?
+                                <tr>
+                                    <td>
+                                        <p className="info-message">
+                                            <br/>
+                                            You are not in any group
+                                        </p>
+                                    </td>
+                                </tr>
+                                :
                                 this.props.groups.map((el, key) => (
                                     <tr key={key}>
                                         <td>
@@ -252,9 +262,21 @@ class AddFriendModal extends React.Component {
                             </tr>
                             {
                                 this.state.requestsState === 'LOADING' ?
-                                <center>
-                                    <Spinner/>
-                                </center>
+                                <tr>
+                                    <td>
+                                        <Spinner/>
+                                    </td>
+                                </tr>
+                                :
+                                this.state.requests.length === 0 ?
+                                <tr>
+                                    <td>
+                                        <p className="info-message">
+                                            <br/>
+                                            You don't have any friend requests
+                                        </p>
+                                    </td>
+                                </tr>
                                 :
                                 this.state.requests.map((el, key) => (
                                     <tr key={key}>

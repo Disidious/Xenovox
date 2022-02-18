@@ -10,8 +10,11 @@ class UserMenu extends React.Component {
                 user2id: parseInt(chatId),
                 relation: -1
             })
-        }).then(()=>{
-            this.props.refreshFriends()
+        }).then((res)=>{
+            if(res.status !== 200)
+                return
+            //this.props.resetChat(chatId)
+            this.props.refreshFriends(chatId)
         })
     }
     
@@ -23,8 +26,11 @@ class UserMenu extends React.Component {
                 user2id: parseInt(chatId),
                 relation: 2
             })
-        }).then(()=>{
-            this.props.refreshFriends()
+        }).then((res)=>{
+            if(res.status !== 200)
+                return
+            //this.props.resetChat(chatId)
+            this.props.refreshFriends(chatId)
         })
     }
 
@@ -35,9 +41,11 @@ class UserMenu extends React.Component {
             body: JSON.stringify({
                 groupid: parseInt(chatId)
             })
-        }).then(()=>{
-            this.props.resetChat(chatId)
-            this.props.refreshGroups()
+        }).then((res)=>{
+            if(res.status !== 200)
+                return
+            //this.props.resetChat(chatId)
+            this.props.refreshGroups(chatId)
         })
     }
 

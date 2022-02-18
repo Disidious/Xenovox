@@ -70,7 +70,9 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 	sockets[id] = c
 	defer resetSocket(c, &id)
 
-	sendAllNotifications(&id, c)
+	if !sendAllNotifications(&id) {
+		return
+	}
 
 	currChats[id] = chat{
 		chatType: None,
@@ -110,11 +112,21 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
+			// Insert message to database
 			messageObj.SenderId = id
-			if !sendDM(&messageObj) {
+			dmId, ret := dbhandler.InsertDirectMessage(&messageObj)
+			if ret == "FAILED" {
+				log.Println("Failed : couldn't insert to database")
+				continue
+			} else if ret == "BLOCKED" {
+				log.Println(ret)
 				continue
 			}
-			log.Printf("recv: %s", message)
+
+			// Send the message to the client
+			messageObj.Id = dmId
+			sendDM(&messageObj)
+
 		case "GM":
 			bodyMap, ok := (request.Body).(map[string]interface{})
 			if !ok {
@@ -131,11 +143,16 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
+			// Insert message to database
 			messageObj.SenderId = id
-			if !sendGM(&messageObj, true, false, false) {
+			gmId, ret := dbhandler.InsertGroupMessage(&messageObj)
+			if ret == "FAILED" {
+				log.Println("Failed : couldn't insert to database")
 				continue
 			}
-			log.Printf("recv: %s", message)
+
+			messageObj.Id = gmId
+			sendGM(&messageObj, true, false, false)
 
 		case "PRIVATE_HISTORY_REQ":
 			bodyMap, ok := (request.Body).(map[string]interface{})
@@ -151,7 +168,7 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			friendIdInt := int(friendId)
-			if !getPrivateChat(&friendIdInt, &id, c) {
+			if !getPrivateChat(&friendIdInt, &id) {
 				currChats[id] = chat{
 					chatType: Private,
 					chatId:   -1,
@@ -162,6 +179,7 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 				chatType: Private,
 				chatId:   friendIdInt,
 			}
+
 		case "GROUP_HISTORY_REQ":
 			bodyMap, ok := (request.Body).(map[string]interface{})
 			if !ok {
@@ -176,7 +194,7 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			groupIdInt := int(groupId)
-			if !getGroupChatAndMembers(&groupIdInt, &id, c) {
+			if !getGroupChat(&groupIdInt, &id) {
 				currChats[id] = chat{
 					chatType: Private,
 					chatId:   -1,
@@ -187,7 +205,6 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 				chatType: Group,
 				chatId:   groupIdInt,
 			}
-
 		}
 	}
 }
@@ -209,14 +226,14 @@ func main() {
 	authRouter.HandleFunc("/register", register).Methods("POST")
 
 	mainRouter.HandleFunc("/checkauth", checkAuth).Methods("GET")
-	mainRouter.HandleFunc("/logout", logout).Methods("POST")
 	mainRouter.HandleFunc("/friends", getFriends).Methods("GET")
 	mainRouter.HandleFunc("/groups", getGroups).Methods("GET")
 	mainRouter.HandleFunc("/connections", getConnections).Methods("GET")
 	mainRouter.HandleFunc("/info", getUserInfo).Methods("GET")
 	mainRouter.HandleFunc("/socket", socketIncomingHandler)
-	mainRouter.HandleFunc("/sendRelation", sendRelation).Methods("POST")
 	mainRouter.HandleFunc("/friendRequests", getFriendRequests).Methods("GET")
+	mainRouter.HandleFunc("/logout", logout).Methods("POST")
+	mainRouter.HandleFunc("/sendRelation", sendRelation).Methods("POST")
 	mainRouter.HandleFunc("/read", updateDMsToRead).Methods("POST")
 	//mainRouter.HandleFunc("/createGroup", createGroup).Methods("POST")
 	mainRouter.HandleFunc("/leave", leaveGroup).Methods("POST")
@@ -412,14 +429,13 @@ func sendRelation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if receiverSocket, ok := sockets[newRelation.User2Id]; ok {
-		// Send notification or refresh friend to the receiver client based on the relation
-		if newRelation.Relation == 0 {
-			sendFRNotification(&id, receiverSocket)
-		} else {
-			sendRefresh(receiverSocket, false)
-		}
+	// Send notification or refresh friend to the receiver client based on the relation
+	if newRelation.Relation == 0 {
+		sendFRNotification(&newRelation.User2Id)
+	} else {
+		sendRefresh(&newRelation.User2Id, &newRelation.User1Id, newRelation.Relation != 1, false)
 	}
+
 	jsonRes, _ := json.Marshal(apiResponse{Message: ret})
 	w.Write(jsonRes)
 }
@@ -432,10 +448,15 @@ func getUserInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	row := dbhandler.GetUserInfo(&id)
+	rows, ok := dbhandler.GetUserInfo(&id)
+	if !ok {
+		failureRes(w, r)
+		return
+	}
 
 	var userInfo structs.ClientUser
-	row.Scan(&userInfo.Id, &userInfo.Name, &userInfo.Username, &userInfo.Email, &userInfo.Picture)
+	rows.Next()
+	rows.Scan(&userInfo.Id, &userInfo.Name, &userInfo.Username, &userInfo.Email, &userInfo.Picture)
 	jsonRes, _ := json.Marshal(userInfo)
 	w.Write(jsonRes)
 }
@@ -571,38 +592,46 @@ func leaveGroup(w http.ResponseWriter, r *http.Request) {
 	var body map[string]interface{}
 	err := json.NewDecoder(r.Body).Decode(&body)
 	if err != nil {
-		log.Println("1")
 		failureRes(w, r)
 		return
 	}
 
 	groupId := int(body["groupid"].(float64))
+	if !dbhandler.ChangeGroupOwnerRand(&id, &groupId) {
+		failureRes(w, r)
+		return
+	}
 
 	var senderUsername string
-	if rows := dbhandler.GetUsernameAndPicture(&id, false); ok {
-		users, ok := structs.StructifyRows(rows, reflect.TypeOf(structs.User{}))
-		if !ok {
-			log.Println("3")
-			failureRes(w, r)
-			return
-		}
-		senderUsername = users[0].(*structs.User).Username
+	if rows, status := dbhandler.GetUsernameAndPicture(&id, false); status {
+		rows.Next()
+		rows.Scan(&senderUsername)
+	} else {
+		failureRes(w, r)
+		return
 	}
 
 	sysMsg := senderUsername + " left the group"
-	if !sendGM(&structs.GroupMessage{
+
+	messageObj := structs.GroupMessage{
 		Message:  sysMsg,
 		SenderId: id,
 		GroupId:  groupId,
 		IsSystem: true,
-	}, false, true, true) {
-		log.Println("4")
+	}
+	dmId, ret := dbhandler.InsertGroupMessage(&messageObj)
+	if ret == "FAILED" {
+		failureRes(w, r)
+		return
+	}
+	messageObj.Id = dmId
+
+	if !sendGM(&messageObj, false, true, true) {
 		failureRes(w, r)
 		return
 	}
 
 	if !dbhandler.LeaveGroup(&id, &groupId) {
-		log.Println("2")
 		failureRes(w, r)
 		return
 	}
@@ -636,7 +665,6 @@ func addToGroup(w http.ResponseWriter, r *http.Request) {
 
 	res := dbhandler.AddToGroup(&id, &friendIdsCasted, &groupId)
 	if res != "SUCCESS" {
-		log.Println(res)
 		failureRes(w, r)
 		return
 	}
@@ -663,17 +691,24 @@ func addToGroup(w http.ResponseWriter, r *http.Request) {
 	// Send refresh groups to added user and send system message of adding a new member to a group
 	sendToSender := true
 	for _, friendId := range friendIdsCasted {
-		if receiverSocket, ok := sockets[friendId]; ok {
-			sendRefresh(receiverSocket, true)
-		}
+		sendRefresh(&friendId, &groupId, false, true)
 
 		sysMsg := senderUsername + " added " + usernames[friendId]
-		if !sendGM(&structs.GroupMessage{
+
+		messageObj := structs.GroupMessage{
 			Message:  sysMsg,
 			SenderId: id,
 			GroupId:  groupId,
 			IsSystem: true,
-		}, sendToSender, true, false) {
+		}
+		gmId, ret := dbhandler.InsertGroupMessage(&messageObj)
+		if ret == "FAILED" {
+			failureRes(w, r)
+			return
+		}
+		messageObj.Id = gmId
+
+		if !sendGM(&messageObj, sendToSender, true, false) {
 			failureRes(w, r)
 			return
 		}

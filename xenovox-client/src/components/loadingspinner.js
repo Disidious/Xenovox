@@ -14,11 +14,13 @@ class Spinner extends React.Component {
               </div>
             </center>
             :
-            <div className="loading">
-              <div className="arc"></div>
-              <div className="arc"></div>
-              <div className="arc"></div>
-            </div>
+            <center>
+              <div className="loading">
+                <div className="arc"></div>
+                <div className="arc"></div>
+                <div className="arc"></div>
+              </div>
+            </center>
           }
         </div>
       );

@@ -1,0 +1,180 @@
+package dbhandler
+
+import (
+	"database/sql"
+	"log"
+	"strconv"
+
+	"github.com/lib/pq"
+)
+
+func GetGroups(id *int) (rows *sql.Rows, status bool) {
+	rows, err := db.Query(`SELECT groups.id, groups.name, groups.ownerid, groups.picture 
+	FROM groups
+	INNER JOIN group_members
+	ON userid = $1 AND groupid = groups.id`, id)
+
+	if err != nil {
+		log.Fatal(err)
+		status = false
+	} else {
+		status = true
+	}
+
+	return
+}
+
+func GetGroupMembers(groupId *int) (rows *sql.Rows, status bool) {
+	query := `SELECT gm.id as "id", userid, username, picture FROM users 
+	INNER JOIN group_members gm ON userid = users.id AND groupid = $1`
+
+	rows, err := db.Query(query, groupId)
+	if err != nil {
+		log.Fatal(err)
+		status = false
+		return
+	}
+
+	status = true
+	return
+}
+
+func GetGroupChatAndMembers(id *int, groupId *int) (hrows *sql.Rows, mrows *sql.Rows, status bool) {
+	// Checks if user is a member of the group
+	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2`
+	row := db.QueryRow(checkQ, id, groupId)
+	var count int
+	row.Scan(&count)
+	if count == 0 {
+		status = false
+		return
+	}
+
+	hrows, err := db.Query(`
+	SELECT group_messages.id as "id", message, senderid, username, picture, issystem 
+	FROM group_messages INNER JOIN users ON users.id = senderid WHERE groupid = $1`, groupId)
+	if err != nil {
+		log.Fatal(err)
+		status = false
+		return
+	}
+
+	mrows, ok := GetGroupMembers(groupId)
+	if !ok {
+		log.Fatal(err)
+		status = false
+		return
+	}
+
+	status = true
+	return
+}
+
+func AddToGroup(id *int, friendIds *[]int, groupId *int) string {
+	if len(*friendIds) == 0 {
+		return "FAILED"
+	}
+
+	// Checks if the user to add is already a member and if the user that is adding is a member
+	checkQ := `SELECT userid FROM group_members WHERE groupid = $1 AND (userid = ANY($2) OR userid = $3)`
+	rows, err := db.Query(checkQ, groupId, pq.Array(*friendIds), id)
+	if err == nil && rows.Next() {
+		var userId int
+		rows.Scan(&userId)
+
+		if userId != *id || rows.Next() {
+			log.Println(userId)
+			return "EXISTS"
+		}
+	} else {
+		return "NOT_MEMBER"
+	}
+
+	// Checks if both users are friends
+	checkQ2 := `SELECT COUNT(*) FROM relations 
+	WHERE ((user1id = $1 AND user2id = ANY($2)) OR (user1id = ANY($2) AND user2id = $1)) AND relation = 1`
+	row2 := db.QueryRow(checkQ2, id, pq.Array(*friendIds))
+	var count2 int
+	row2.Scan(&count2)
+	if count2 == 0 {
+		return "NOT_FRIENDS"
+	}
+
+	addQ := `INSERT INTO group_members (userid, groupid) VALUES`
+	groupIdStr := strconv.Itoa(*groupId)
+	for _, friendId := range *friendIds {
+		addQ += "(" + strconv.Itoa(friendId) + "," + groupIdStr + "),"
+	}
+	addQ = addQ[:len(addQ)-1]
+
+	_, err = db.Exec(addQ)
+	if err != nil {
+		log.Println(err)
+		return "FAILED"
+	}
+
+	return "SUCCESS"
+}
+
+func changeGroupOwner(ownerId *int, groupId *int) bool {
+	if *ownerId == -1 {
+		ownerId = nil
+	}
+	updateOwnerQ := `UPDATE groups SET ownerid = $1 WHERE id = $2`
+	_, err := db.Exec(updateOwnerQ, ownerId, groupId)
+	if err != nil {
+		log.Println(err)
+		return false
+	}
+	return true
+}
+
+func ChangeGroupOwnerRand(id *int, groupId *int) bool {
+	// Change owner to be the first found member if the user that left is the owner
+	ownerQ := `SELECT gm.userid FROM group_members gm INNER JOIN groups g ON gm.id = ownerid AND g.id = $1`
+	row := db.QueryRow(ownerQ, groupId)
+	var ownerId int
+	err := row.Scan(&ownerId)
+	if err == sql.ErrNoRows {
+		return true
+	}
+
+	if ownerId == *id {
+		getMemberQ := `SELECT id FROM group_members WHERE groupid = $1 AND userid != $2 LIMIT 1`
+		row := db.QueryRow(getMemberQ, groupId, id)
+		var newOwnerId int
+		err = row.Scan(&newOwnerId)
+		if err != nil && err == sql.ErrNoRows {
+			newOwnerId = -1
+		} else if err != nil {
+			log.Println(err)
+			return false
+		}
+		return changeGroupOwner(&newOwnerId, groupId)
+	}
+
+	return true
+}
+
+func LeaveGroup(id *int, groupId *int) bool {
+	remQ := `DELETE FROM group_members WHERE userid = $1 AND groupid = $2`
+	_, err := db.Exec(remQ, id, groupId)
+
+	if err != nil || !removeUnreadMsg(groupId, id, true) {
+		log.Println(err)
+		return false
+	}
+
+	return true
+}
+
+func GetGroupInfo(groupId *int) (row *sql.Rows, status bool) {
+	q := `SELECT id, name, ownerid, picture FROM groups WHERE id = $1`
+	row, err := db.Query(q, groupId)
+	if err != nil {
+		status = false
+	} else {
+		status = true
+	}
+	return
+}
