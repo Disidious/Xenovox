@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"strconv"
 
-	structs "github.com/Disidious/Xenovox/Structs"
+	structs "github.com/Disidious/Xenovox/structs"
 )
 
 func generateToken() string {

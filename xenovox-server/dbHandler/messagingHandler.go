@@ -5,26 +5,28 @@ import (
 	"log"
 	"strconv"
 
-	structs "github.com/Disidious/Xenovox/Structs"
+	structs "github.com/Disidious/Xenovox/structs"
 	"github.com/go-redis/redis"
 )
 
-func InsertGroupMessage(message *structs.GroupMessage) (id int, status string) {
+func InsertGroupMessage(message *structs.GroupMessage) (id int, status bool) {
 	// Checks if sender is a member of the group
 	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2`
 	row := db.QueryRow(checkQ, message.SenderId, message.GroupId)
 	var count int
-	row.Scan(&count)
-	if count != 1 {
-		status = "FAILED"
+	if err := row.Scan(&count); err != nil || count != 1 {
+		status = false
 		return
 	}
 
 	addQ := `INSERT INTO group_messages (senderid, groupid, message, issystem) VALUES($1, $2, $3, $4) RETURNING id`
 	rowId := db.QueryRow(addQ, message.SenderId, message.GroupId, message.Message, message.IsSystem)
 
-	rowId.Scan(&id)
-	status = "SUCCESS"
+	if err := rowId.Scan(&id); err != nil {
+		status = false
+		return
+	}
+	status = true
 	return
 }
 

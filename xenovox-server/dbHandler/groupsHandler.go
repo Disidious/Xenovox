@@ -5,6 +5,7 @@ import (
 	"log"
 	"strconv"
 
+	"github.com/Disidious/Xenovox/structs"
 	"github.com/lib/pq"
 )
 
@@ -39,33 +40,29 @@ func GetGroupMembers(groupId *int) (rows *sql.Rows, status bool) {
 	return
 }
 
-func GetGroupChatAndMembers(id *int, groupId *int) (hrows *sql.Rows, mrows *sql.Rows, status bool) {
-	// Checks if user is a member of the group
-	checkQ := `SELECT COUNT(*) FROM group_members WHERE userid = $1 AND groupid = $2`
-	row := db.QueryRow(checkQ, id, groupId)
-	var count int
-	row.Scan(&count)
-	if count == 0 {
-		status = false
-		return
-	}
-
-	hrows, err := db.Query(`
-	SELECT group_messages.id as "id", message, senderid, username, picture, issystem 
-	FROM group_messages INNER JOIN users ON users.id = senderid WHERE groupid = $1`, groupId)
+func CreateGroup(id *int, group *structs.Group) (status bool) {
+	var groupId int
+	err := db.QueryRow(`INSERT INTO groups (name, picture) VALUES($1, $2) RETURNING id`, group.Name, group.Picture).Scan(&groupId)
 	if err != nil {
 		log.Fatal(err)
 		status = false
 		return
 	}
 
-	mrows, ok := GetGroupMembers(groupId)
-	if !ok {
+	var gmId int
+	err = db.QueryRow(`INSERT INTO group_members (userid, groupid) VALUES($1, $2) RETURNING id`, id, groupId).Scan(&gmId)
+	if err != nil {
 		log.Fatal(err)
 		status = false
-		return
 	}
 
+	_, err = db.Exec(`UPDATE groups SET ownerid = $1 WHERE id = $2`, gmId, groupId)
+	if err != nil {
+		log.Fatal(err)
+		status = false
+	}
+
+	group.Id = groupId
 	status = true
 	return
 }
@@ -81,9 +78,7 @@ func AddToGroup(id *int, friendIds *[]int, groupId *int) string {
 	if err == nil && rows.Next() {
 		var userId int
 		rows.Scan(&userId)
-
 		if userId != *id || rows.Next() {
-			log.Println(userId)
 			return "EXISTS"
 		}
 	} else {

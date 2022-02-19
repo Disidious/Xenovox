@@ -399,6 +399,14 @@ input[type=number] {
 /*Table*/
 /*==================================================================*/
 
+.table-container {
+  max-height: 20em;
+  margin-top: 1em;
+}
+
+.table-btn {
+  margin-right: 0.5em;
+}
 
 .table th{
   color: rgb(243, 246, 249);

@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"time"
 
-	dbhandler "github.com/Disidious/Xenovox/DbHandler"
-	structs "github.com/Disidious/Xenovox/Structs"
+	dbhandler "github.com/Disidious/Xenovox/dbHandler"
+	structs "github.com/Disidious/Xenovox/structs"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 )
@@ -146,7 +146,7 @@ func socketIncomingHandler(w http.ResponseWriter, r *http.Request) {
 			// Insert message to database
 			messageObj.SenderId = id
 			gmId, ret := dbhandler.InsertGroupMessage(&messageObj)
-			if ret == "FAILED" {
+			if !ret {
 				log.Println("Failed : couldn't insert to database")
 				continue
 			}
@@ -235,7 +235,7 @@ func main() {
 	mainRouter.HandleFunc("/logout", logout).Methods("POST")
 	mainRouter.HandleFunc("/sendRelation", sendRelation).Methods("POST")
 	mainRouter.HandleFunc("/read", updateDMsToRead).Methods("POST")
-	//mainRouter.HandleFunc("/createGroup", createGroup).Methods("POST")
+	mainRouter.HandleFunc("/createGroup", createGroup).Methods("POST")
 	mainRouter.HandleFunc("/leave", leaveGroup).Methods("POST")
 	mainRouter.HandleFunc("/addToGroup", addToGroup).Methods("POST")
 
@@ -571,16 +571,6 @@ func updateDMsToRead(w http.ResponseWriter, r *http.Request) {
 	w.Write(jsonRes)
 }
 
-// func createGroup(w http.ResponseWriter, r *http.Request) {
-// 	w.Header().Set("Content-Type", "application/json")
-
-// 	id, ok := getId(w, r)
-// 	if !ok {
-// 		return
-// 	}
-
-// }
-
 func leaveGroup(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -620,7 +610,7 @@ func leaveGroup(w http.ResponseWriter, r *http.Request) {
 		IsSystem: true,
 	}
 	dmId, ret := dbhandler.InsertGroupMessage(&messageObj)
-	if ret == "FAILED" {
+	if !ret {
 		failureRes(w, r)
 		return
 	}
@@ -640,7 +630,84 @@ func leaveGroup(w http.ResponseWriter, r *http.Request) {
 	w.Write(jsonRes)
 }
 
+func addToGroupExec(id *int, body *map[string]interface{}) bool {
+	friendIds := (*body)["friendids"].([]interface{})
+	groupId := int((*body)["groupid"].(float64))
+
+	friendIdsCasted := make([]int, 0)
+	for _, friendId := range friendIds {
+		friendIdsCasted = append(friendIdsCasted, int(friendId.(float64)))
+	}
+
+	res := dbhandler.AddToGroup(id, &friendIdsCasted, &groupId)
+	if res != "SUCCESS" {
+		log.Println(groupId)
+		return false
+	}
+
+	usernames := make(map[int]string)
+	var senderUsername string
+	if rows, ok := dbhandler.GetUsernames(append(friendIdsCasted, *id)); ok {
+		users, ok := structs.StructifyRows(rows, reflect.TypeOf(structs.User{}))
+		if !ok {
+			return false
+		}
+		for _, user := range users {
+			userCasted := user.(*structs.User)
+			if userCasted.Id == *id {
+				senderUsername = userCasted.Username
+				continue
+			}
+
+			usernames[userCasted.Id] = userCasted.Username
+		}
+	}
+
+	// Send refresh groups to added user and send system message of adding a new member to a group
+	for _, friendId := range friendIdsCasted {
+		sendRefresh(&friendId, &groupId, false, true)
+
+		sysMsg := senderUsername + " added " + usernames[friendId]
+
+		messageObj := structs.GroupMessage{
+			Message:  sysMsg,
+			SenderId: *id,
+			GroupId:  groupId,
+			IsSystem: true,
+		}
+		gmId, ret := dbhandler.InsertGroupMessage(&messageObj)
+		if !ret {
+			return false
+		}
+		messageObj.Id = gmId
+
+		if !sendGM(&messageObj, true, true, false) {
+			return false
+		}
+	}
+	return true
+}
+
 func addToGroup(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	id, ok := getId(w, r)
+	if !ok {
+		return
+	}
+
+	var body map[string]interface{}
+	err := json.NewDecoder(r.Body).Decode(&body)
+	if err != nil || !addToGroupExec(&id, &body) {
+		failureRes(w, r)
+		return
+	}
+
+	jsonRes, _ := json.Marshal(apiResponse{Message: "SUCCESS"})
+	w.Write(jsonRes)
+}
+
+func createGroup(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	id, ok := getId(w, r)
@@ -655,64 +722,25 @@ func addToGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	friendIds := body["friendids"].([]interface{})
-	groupId := int(body["groupid"].(float64))
+	groupMap := body["group"].(map[string]interface{})
+	var group structs.Group
+	structs.StructifyMap(&groupMap, &group)
 
-	friendIdsCasted := make([]int, 0)
-	for _, friendId := range friendIds {
-		friendIdsCasted = append(friendIdsCasted, int(friendId.(float64)))
-	}
-
-	res := dbhandler.AddToGroup(&id, &friendIdsCasted, &groupId)
-	if res != "SUCCESS" {
+	status := dbhandler.CreateGroup(&id, &group)
+	if !status {
 		failureRes(w, r)
 		return
 	}
+	sendRefresh(&id, &group.Id, false, true)
 
-	usernames := make(map[int]string)
-	var senderUsername string
-	if rows, ok := dbhandler.GetUsernames(append(friendIdsCasted, id)); ok {
-		users, ok := structs.StructifyRows(rows, reflect.TypeOf(structs.User{}))
-		if !ok {
+	if len(body["members"].([]interface{})) != 0 {
+		newBody := make(map[string]interface{})
+		newBody["groupid"] = float64(group.Id)
+		newBody["friendids"] = body["members"]
+		if !addToGroupExec(&id, &newBody) {
 			failureRes(w, r)
 			return
 		}
-		for _, user := range users {
-			userCasted := user.(*structs.User)
-			if userCasted.Id == id {
-				senderUsername = userCasted.Username
-				continue
-			}
-
-			usernames[userCasted.Id] = userCasted.Username
-		}
-	}
-
-	// Send refresh groups to added user and send system message of adding a new member to a group
-	sendToSender := true
-	for _, friendId := range friendIdsCasted {
-		sendRefresh(&friendId, &groupId, false, true)
-
-		sysMsg := senderUsername + " added " + usernames[friendId]
-
-		messageObj := structs.GroupMessage{
-			Message:  sysMsg,
-			SenderId: id,
-			GroupId:  groupId,
-			IsSystem: true,
-		}
-		gmId, ret := dbhandler.InsertGroupMessage(&messageObj)
-		if ret == "FAILED" {
-			failureRes(w, r)
-			return
-		}
-		messageObj.Id = gmId
-
-		if !sendGM(&messageObj, sendToSender, true, false) {
-			failureRes(w, r)
-			return
-		}
-		sendToSender = false
 	}
 
 	jsonRes, _ := json.Marshal(apiResponse{Message: "SUCCESS"})

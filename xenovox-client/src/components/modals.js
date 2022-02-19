@@ -5,13 +5,51 @@ import Spinner from "./../components/loadingspinner";
 class CreateGroupModal extends React.Component {
     constructor(props) {
         super(props)
-        this.state = {value: "STANDBY"}
+        this.state = {
+            value: "STANDBY",
+            memberstoadd: []
+        }
     }
 
-    createGroup() {
-        let groupName = document.getElementById("groupName")
-        if(groupName.value === '')
+    addMember(id) {
+        this.state.memberstoadd.push(id)
+        this.setState({value: "STANDBY", memberstoadd: this.state.memberstoadd})
+        console.log(this.state.memberstoadd)
+    }
+
+    remMember(id) {
+        let idx = this.state.memberstoadd.indexOf(id)
+        this.state.memberstoadd.splice(idx, 1)
+        this.setState({value: "STANDBY", memberstoadd: this.state.memberstoadd})
+    }
+
+    isAFriend(id) {
+        return this.props.friends.findIndex(friend => friend.id === id) !== -1
+    }
+
+    createGroup(group) {
+        if(group.name === '') {
             return
+        }
+
+        this.state.memberstoadd.forEach(member => !this.isAFriend(member) ? this.remMember(member) : null)
+
+        fetch(this.props.url + '/createGroup', {
+            credentials: 'include',
+            method: 'POST',
+            body: JSON.stringify({
+                group: group,
+                members: this.state.memberstoadd
+            })
+        }).then(response => {
+            if(response.status !== 200) {
+                this.setState({value: "FAILED", memberstoadd: this.state.memberstoadd})
+                return
+            }
+            this.props.hide()
+        }).catch((error) => {
+            console.log(error)
+        })
     }
 
     render() {
@@ -23,28 +61,65 @@ class CreateGroupModal extends React.Component {
             centered>
                 <Modal.Header>
                     <Modal.Title id="contained-modal-title-vcenter">
-                        Groups
+                        Create Group
                     </Modal.Title>
                 </Modal.Header>
                 <Modal.Body>
                     <p className="field-title"><b>Group Name</b></p>
-                    <input type="number" id="groupName" className='textbox-main' style={{width: "50%"}}/>
+                    <input id="groupName" className='textbox-main'/>
                     {
-                        this.state.value === "UNEXPECTED_FAILURE" ?
+                        this.state.value === "FAILED" ?
                         <p className="error-message">
                             Couldn't create group
                         </p>
                         :
-                        this.state.value === "SUCCESS" ?
-                        <p className="success-message">
-                            Group created
+                        <p className="error-message">
+                            &nbsp;
                         </p>
-                        :
-                        <p className="success-message">&nbsp;</p>
                     }
+                    <div className="scrollable table-container">
+                        <table style={{width: "100%"}}>
+                            <tbody className="table">
+                                <tr>
+                                    <th>Username#Id</th>
+                                </tr>
+                                {
+                                    this.props.friends.length === 0 ?
+                                    <tr>
+                                        <td>
+                                            <p className="info-message">
+                                                <br/>
+                                                You don't have any friends
+                                            </p>
+                                        </td>
+                                    </tr>
+                                    :
+                                    this.props.friends.map((el, key) => (
+                                        <tr key={key}>
+                                            <td>
+                                                {el.username}#{el.id}
+                                            </td>
+                                            <td style={{float: 'right'}}>
+                                                {
+                                                    this.state.memberstoadd.includes(el.id) ?
+                                                    <Button className="btn-main btn-cancel table-btn"
+                                                    onClick={()=>{ this.remMember(el.id) }}>Remove</Button>
+                                                    :
+                                                    <Button className="btn-main btn-confirm table-btn"
+                                                    onClick={()=>{ this.addMember(el.id) }}>Add</Button>
+                                                }
+                                            </td>
+                                        </tr>
+                                    ))
+                                }
+                            </tbody>
+                        </table>
+                    </div>
                 </Modal.Body>
                 <Modal.Footer>
-                    <Button className="btn-main btn-confirm" onClick={() => this.createGroup()}>Create</Button>
+                    <Button className="btn-main btn-confirm" onClick={() => 
+                        this.createGroup({name: document.getElementById("groupName").value})
+                        }>Create</Button>
                     <Button className="btn-main btn-cancel" onClick={() => {
                         this.props.hide()
                         }}>Close</Button>
@@ -80,7 +155,7 @@ class GroupInviteModal extends React.Component {
         return (
             <Modal
             show={true}
-            size="lg"
+            size="md"
             aria-labelledby="contained-modal-title-vcenter"
             centered>
                 <Modal.Header>
@@ -89,37 +164,38 @@ class GroupInviteModal extends React.Component {
                     </Modal.Title>
                 </Modal.Header>
                 <Modal.Body>
-                    <br/>
-                    <table style={{width: "100%"}}>
-                        <tbody className="table">
-                            <tr>
-                                <th>Name</th>
-                            </tr>
-                            {
-                                this.props.groups.length === 0 ?
+                    <div className="scrollable table-container">
+                        <table style={{width: "100%"}}>
+                            <tbody className="table">
                                 <tr>
-                                    <td>
-                                        <p className="info-message">
-                                            <br/>
-                                            You are not in any group
-                                        </p>
-                                    </td>
+                                    <th>Name</th>
                                 </tr>
-                                :
-                                this.props.groups.map((el, key) => (
-                                    <tr key={key}>
+                                {
+                                    this.props.groups.length === 0 ?
+                                    <tr>
                                         <td>
-                                            {el.name}
-                                        </td>
-                                        <td style={{float: 'right'}}>
-                                            <Button className="btn-main btn-confirm" style={{marginRight: '0.5em'}}
-                                            onClick={()=>{ this.addToGroup(el.id, el.name) }}>Add</Button>
+                                            <p className="info-message">
+                                                <br/>
+                                                You are not in any group
+                                            </p>
                                         </td>
                                     </tr>
-                                ))
-                            }
-                        </tbody>
-                    </table>
+                                    :
+                                    this.props.groups.map((el, key) => (
+                                        <tr key={key}>
+                                            <td>
+                                                {el.name}
+                                            </td>
+                                            <td style={{float: 'right'}}>
+                                                <Button className="btn-main btn-confirm table-btn"
+                                                onClick={()=>{ this.addToGroup(el.id, el.name) }}>Add</Button>
+                                            </td>
+                                        </tr>
+                                    ))
+                                }
+                            </tbody>
+                        </table>
+                    </div>
                     {
                         this.state.value === "UNEXPECTED_FAILURE" ?
                         <p className="error-message">
@@ -220,7 +296,7 @@ class AddFriendModal extends React.Component {
         return (
             <Modal
             show={true}
-            size="lg"
+            size="md"
             aria-labelledby="contained-modal-title-vcenter"
             centered>
                 <Modal.Header>
@@ -254,7 +330,6 @@ class AddFriendModal extends React.Component {
                     </Modal.Title>
                 </Modal.Header>
                 <Modal.Body>
-                    <br/>
                     <table style={{width: "100%"}}>
                         <tbody className="table">
                             <tr>
@@ -285,10 +360,10 @@ class AddFriendModal extends React.Component {
                                         </td>
                                         <td style={{float: 'right'}}>
                                             <Button className="btn-main btn-confirm" style={{marginRight: '0.5em'}}
-                                            onClick={()=>{ this.acceptRequest(el.userid) }}>&#10004;</Button>
+                                            onClick={()=>{ this.acceptRequest(el.userid) }}>Accept</Button>
 
                                             <Button className="btn-main btn-cancel"
-                                            onClick={()=>{ this.rejectRequest(el.userid) }}>&#10060;</Button>
+                                            onClick={()=>{ this.rejectRequest(el.userid) }}>Reject</Button>
                                         </td>
                                     </tr>
                                 ))
@@ -310,7 +385,7 @@ class ConfirmationModal extends React.Component {
     render() {
         return(
             <Modal
-            size="lg"
+            size="md"
             show={true}
             aria-labelledby="contained-modal-title-vcenter"
             centered>

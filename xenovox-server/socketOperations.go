@@ -7,8 +7,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	dbhandler "github.com/Disidious/Xenovox/DbHandler"
-	structs "github.com/Disidious/Xenovox/Structs"
+	dbhandler "github.com/Disidious/Xenovox/dbHandler"
+	structs "github.com/Disidious/Xenovox/structs"
 )
 
 func getPrivateChat(friendId *int, id *int) bool {
@@ -168,7 +168,7 @@ func sendGM(message *structs.GroupMessage, sendToSender bool, sendMembers bool, 
 				}
 
 				if currChat, ok := currChats[castedMember.UserId]; !ok || currChat.chatType != Group || currChat.chatId != message.GroupId {
-					membersToNotify = append(membersToNotify, *&structs.User{
+					membersToNotify = append(membersToNotify, structs.User{
 						Id: castedMember.UserId,
 					})
 				}
@@ -209,7 +209,6 @@ func sendAllNotifications(id *int) bool {
 		}
 	} else {
 		log.Println("Socket not found")
-		return false
 	}
 
 	return true
@@ -233,7 +232,6 @@ func sendFRNotification(id *int) bool {
 		}
 	} else {
 		log.Println("Socket not found")
-		return false
 	}
 
 	return true
@@ -286,7 +284,6 @@ func sendRefresh(id *int, entityId *int, remFlag bool, isGroup bool) bool {
 		}
 	} else {
 		log.Println("Socket not found")
-		return false
 	}
 
 	return true

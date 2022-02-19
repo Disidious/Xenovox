@@ -7,8 +7,8 @@ require github.com/gin-gonic/gin v1.7.7
 require (
 	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
-	golang.org/x/text v0.3.6 // indirect
-	google.golang.org/protobuf v1.26.0 // indirect
+	golang.org/x/text v0.3.7 // indirect
+	google.golang.org/protobuf v1.27.1 // indirect
 )
 
 require (

@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"log"
 
-	structs "github.com/Disidious/Xenovox/Structs"
+	structs "github.com/Disidious/Xenovox/structs"
 )
 
 func GetFriends(id *int) (rows *sql.Rows, status bool) {

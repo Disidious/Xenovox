@@ -274,7 +274,9 @@ function Home(props) {
                 setChat({group: false, chatid: -1, history: []})
             }
         } else if(rem === false) {
-            newFriends.push(friendInfo)
+            if(newFriends.findIndex(friend => friend.id === friendInfo.id) === -1) {
+                newFriends.push(friendInfo)
+            }
         } else {
             let idx = newFriends.findIndex(friend => friend.id === friendInfo.id)
             newFriends[idx] = friendInfo
@@ -302,7 +304,9 @@ function Home(props) {
                 setChat({group: false, chatid: -1, history: []})
             }
         } else if(rem === false) {
-            newGroups.push(groupInfo)
+            if(newGroups.findIndex(group => group.id === groupInfo.id) === -1) {
+                newGroups.push(groupInfo)
+            }
         } else {
             let idx = newGroups.findIndex(group => group.id === groupInfo.id)
             newGroups[idx] = groupInfo
@@ -508,15 +512,6 @@ function Home(props) {
                                     :
                                     <h1>Groups</h1>
                                 }
-                                <Button className={
-                                    notifications.friendreq ?
-                                    "glowing-btn btn-small"
-                                    :
-                                    "btn-small"
-                                }
-                                onClick={() => setFriendModalShow(true)}>
-                                    <FontAwesomeIcon icon={faUserPlus} size={'xs'} />
-                                </Button>
                                 {
                                     relationsTab ?
                                     <Button className="btn-small"
@@ -524,7 +519,15 @@ function Home(props) {
                                         <FontAwesomeIcon icon={faPlus} size={'xs'} />
                                     </Button>
                                     :
-                                    null
+                                    <Button className={
+                                        notifications.friendreq ?
+                                        "glowing-btn btn-small"
+                                        :
+                                        "btn-small"
+                                    }
+                                    onClick={() => setFriendModalShow(true)}>
+                                        <FontAwesomeIcon icon={faUserPlus} size={'xs'} />
+                                    </Button>
                                 }
 
                                 <div className="tab-list scrollable">
@@ -666,7 +669,8 @@ function Home(props) {
                     createGroupModalShow ?
                     <CreateGroupModal
                     hide={() => setCreateGroupModalShow(false)}
-                    url={props.url}/>
+                    url={props.url}
+                    friends={friends}/>
                     :
                     null
                 }

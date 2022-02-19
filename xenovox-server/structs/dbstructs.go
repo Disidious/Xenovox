@@ -17,6 +17,13 @@ type Message struct {
 	ReceiverId int    `json:"receiverid"`
 }
 
+type Group struct {
+	Id      int    `json:"id"`
+	Name    string `json:"name"`
+	OwnerId int    `json:"ownerid"`
+	Picture string `json:"picture"`
+}
+
 type GroupMessage struct {
 	Id       int    `json:"id"`
 	Message  string `json:"message"`
